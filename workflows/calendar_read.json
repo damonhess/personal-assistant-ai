@@ -1,0 +1,138 @@
+{
+    "id": "PGD0swPc7EDaWiZp",
+    "name": "06 - Calendar Read",
+    "nodes": [
+        {
+            "id": "trigger-node",
+            "name": "Execute Workflow Trigger",
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "position": [
+                80,
+                80
+            ],
+            "parameters": {},
+            "typeVersion": 1
+        },
+        {
+            "id": "normalize-input",
+            "name": "Normalize Input",
+            "type": "n8n-nodes-base.code",
+            "position": [
+                300,
+                80
+            ],
+            "parameters": {
+                "jsCode": "const input = $input.first().json;\nlet rawInput = input.query && typeof input.query === 'object' ? input.query : input.query && typeof input.query === 'string' ? { text: input.query } : input;\n\nif (rawInput.start && rawInput.end) return [{ json: { start: rawInput.start, end: rawInput.end, requested_date: rawInput.start.split('T')[0] } }];\n\nconst text = rawInput.text || rawInput.query || JSON.stringify(rawInput);\nconst lowerText = text.toLowerCase();\n\nconst pstOffset = -8 * 60 * 60 * 1000;\nconst now = new Date(Date.now() + pstOffset + new Date().getTimezoneOffset() * 60 * 1000);\nlet targetDate = null;\n\nif (lowerText.includes('today')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());\nelse if (lowerText.includes('tomorrow')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);\nelse if (lowerText.includes('yesterday')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);\n\nconst monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];\nif (!targetDate) {\n  for (let i = 0; i < monthNames.length; i++) {\n    const match = text.match(new RegExp(monthNames[i] + '\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i'));\n    if (match) {\n      targetDate = new Date(match[2] ? parseInt(match[2]) : now.getFullYear(), i, parseInt(match[1]));\n      break;\n    }\n  }\n}\n\nif (!targetDate) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nconst y = targetDate.getFullYear();\nconst m = String(targetDate.getMonth() + 1).padStart(2, '0');\nconst d = String(targetDate.getDate()).padStart(2, '0');\n\nreturn [{ json: { start: `${y}-${m}-${d}T00:00:00-08:00`, end: `${y}-${m}-${d}T23:59:59-08:00`, requested_date: `${y}-${m}-${d}` } }];"
+            },
+            "typeVersion": 2
+        },
+        {
+            "id": "google-calendar",
+            "name": "Google Calendar",
+            "type": "n8n-nodes-base.googleCalendar",
+            "onError": "continueRegularOutput",
+            "position": [
+                520,
+                80
+            ],
+            "parameters": {
+                "options": {
+                    "timeMax": "={{ $json.end }}",
+                    "timeMin": "={{ $json.start }}"
+                },
+                "calendar": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "primary"
+                },
+                "operation": "getAll",
+                "returnAll": true
+            },
+            "credentials": {
+                "googleCalendarOAuth2Api": {
+                    "id": "wUsrGLavGaeKAELD",
+                    "name": "Google Calendar account"
+                }
+            },
+            "typeVersion": 1.2
+        },
+        {
+            "id": "format-output",
+            "name": "Format Output",
+            "type": "n8n-nodes-base.code",
+            "position": [
+                1100,
+                80
+            ],
+            "parameters": {
+                "jsCode": "// Format output with confidence scores for calendar events\nconst dateInfo = $('Normalize Input').first().json;\nconst requestedDate = dateInfo.requested_date;\nconst confidenceData = $('Calculate Match Confidence').first().json;\n\n// Determine multiple matches status\nconst highConfidenceCount = confidenceData.high_confidence_count || 0;\nconst exactMatchCount = confidenceData.exact_match_count || 0;\nconst hasMultipleMatches = highConfidenceCount > 1 || (exactMatchCount === 0 && confidenceData.events.length > 1);\n\n// Create formatted output\nconst output = {\n  date: requestedDate,\n  total_events: confidenceData.total_events,\n  events: confidenceData.events.map((event, index) => ({\n    ...event,\n    multiple_matches: hasMultipleMatches,\n    result_rank: index + 1,\n    total_results: confidenceData.total_events\n  })),\n  search_query: confidenceData.search_query,\n  exact_match_count: exactMatchCount,\n  high_confidence_count: highConfidenceCount,\n  best_match: confidenceData.best_match,\n  multiple_matches: hasMultipleMatches\n};\n\n// Add user-friendly message\nif (output.total_events === 0) {\n  output.message = 'No events scheduled for ' + requestedDate;\n} else if (output.exact_match_count === 1) {\n  output.message = 'Found exact match: ' + output.best_match.summary;\n} else if (output.multiple_matches) {\n  output.message = 'Found ' + output.total_events + ' events. Multiple possible matches - please confirm which one.';\n} else {\n  output.message = 'Found ' + output.total_events + ' event(s) for ' + requestedDate;\n}\n\nreturn [{ json: output }];"
+            },
+            "typeVersion": 2
+        },
+        {
+            "id": "confidence-calc",
+            "name": "Calculate Match Confidence",
+            "type": "n8n-nodes-base.code",
+            "position": [
+                850,
+                80
+            ],
+            "parameters": {
+                "jsCode": "const events = $('Google Calendar').all();\nconst normalizeInput = $('Normalize Input').first().json;\nconst searchQuery = (normalizeInput.query || normalizeInput.text || '').toLowerCase().trim();\nconst searchDate = normalizeInput.requested_date;\n\n// If no events, return empty\nif (!events || events.length === 0) {\n  return [{\n    json: {\n      events: [],\n      search_query: searchQuery,\n      search_date: searchDate,\n      total_events: 0,\n      exact_match_count: 0,\n      high_confidence_count: 0,\n      best_match: null,\n      multiple_matches: false\n    }\n  }];\n}\n\n// Calculate confidence for each event\nconst scoredEvents = events.map(item => {\n  const e = item.json;\n  if (!e.id) return null;\n  \n  const title = (e.summary || '').toLowerCase().trim();\n  const eventDateStr = e.start?.dateTime || e.start?.date || '';\n  const eventDate = eventDateStr ? new Date(eventDateStr).toISOString().split('T')[0] : null;\n  \n  let confidence = 0;\n  const reasons = [];\n  \n  // Title matching (60 points possible)\n  if (searchQuery) {\n    if (title === searchQuery) {\n      confidence += 60;\n      reasons.push('exact_title_match');\n    } else if (title.includes(searchQuery)) {\n      confidence += 40;\n      reasons.push('partial_title_match');\n    } else if (searchQuery.includes(title)) {\n      confidence += 30;\n      reasons.push('query_contains_title');\n    } else {\n      // Word-by-word fuzzy matching\n      const titleWords = title.split(/\\s+/);\n      const queryWords = searchQuery.split(/\\s+/);\n      const matchingWords = queryWords.filter(qw => \n        titleWords.some(tw => tw.includes(qw) || qw.includes(tw))\n      );\n      if (matchingWords.length > 0) {\n        confidence += Math.min(20, Math.round(20 * (matchingWords.length / queryWords.length)));\n        reasons.push('fuzzy_word_match');\n      }\n    }\n  }\n  \n  // Date matching (40 points possible)\n  if (eventDate && searchDate) {\n    if (eventDate === searchDate) {\n      confidence += 40;\n      reasons.push('exact_date_match');\n    } else {\n      const dayDiff = Math.abs(\n        (new Date(eventDate) - new Date(searchDate)) / (1000 * 60 * 60 * 24)\n      );\n      if (dayDiff <= 1) {\n        confidence += 20;\n        reasons.push('adjacent_date');\n      }\n    }\n  } else if (!searchQuery && searchDate) {\n    // No query but date specified - give base points for date match\n    if (eventDate === searchDate) {\n      confidence += 50;\n      reasons.push('date_range_match');\n    }\n  } else if (!searchDate) {\n    // No date specified in query, give some points\n    confidence += 10;\n    reasons.push('no_date_filter');\n  }\n  \n  return {\n    id: e.id,\n    summary: e.summary || 'Untitled',\n    start: e.start,\n    end: e.end,\n    description: e.description || null,\n    location: e.location || null,\n    status: e.status,\n    confidence: confidence,\n    match_reasons: reasons,\n    is_exact_match: confidence === 100,\n    is_high_confidence: confidence >= 70\n  };\n}).filter(e => e !== null);\n\n// Sort by confidence descending\nscoredEvents.sort((a, b) => b.confidence - a.confidence);\n\n// Identify exact and high confidence matches\nconst exactMatches = scoredEvents.filter(e => e.is_exact_match);\nconst highConfidenceMatches = scoredEvents.filter(e => e.is_high_confidence);\n\nreturn [{\n  json: {\n    events: scoredEvents,\n    search_query: searchQuery,\n    search_date: searchDate,\n    total_events: scoredEvents.length,\n    exact_match_count: exactMatches.length,\n    high_confidence_count: highConfidenceMatches.length,\n    best_match: scoredEvents[0] || null,\n    multiple_matches: scoredEvents.length > 1 && (exactMatches.length > 1 || (exactMatches.length === 0 && highConfidenceMatches.length > 1))\n  }\n}];"
+            },
+            "typeVersion": 2
+        }
+    ],
+    "connections": {
+        "Google Calendar": {
+            "main": [
+                [
+                    {
+                        "node": "Calculate Match Confidence",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Normalize Input": {
+            "main": [
+                [
+                    {
+                        "node": "Google Calendar",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Execute Workflow Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Normalize Input",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Calculate Match Confidence": {
+            "main": [
+                [
+                    {
+                        "node": "Format Output",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "active": true,
+    "versionId": "9cb865f4-c6cb-4623-a8f3-7192a3037948",
+    "updatedAt": "2026-01-08T06:53:10.908+00:00"
+}

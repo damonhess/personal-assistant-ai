@@ -1,0 +1,794 @@
+{
+    "id": "aX8d9zWniCYaIDwc",
+    "name": "Personal Assistant - AI Agent Main",
+    "nodes": [
+        {
+            "id": "webhook-trigger",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "position": [
+                300,
+                300
+            ],
+            "webhookId": "assistant-webhook",
+            "parameters": {
+                "path": "assistant",
+                "options": {},
+                "httpMethod": "POST",
+                "responseMode": "responseNode"
+            },
+            "typeVersion": 2
+        },
+        {
+            "id": "extract-input",
+            "name": "Extract Input",
+            "type": "n8n-nodes-base.set",
+            "position": [
+                540,
+                300
+            ],
+            "parameters": {
+                "options": {},
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "chat-input",
+                            "name": "chatInput",
+                            "type": "string",
+                            "value": "={{ $json.message || $json.body?.message || $json.query?.message || '' }}"
+                        },
+                        {
+                            "id": "user-message",
+                            "name": "user_message",
+                            "type": "string",
+                            "value": "={{ $json.message || $json.body?.message || $json.query?.message || '' }}"
+                        },
+                        {
+                            "id": "session-id",
+                            "name": "session_id",
+                            "type": "string",
+                            "value": "={{ $json.session_id || $json.body?.session_id || $json.query?.session_id || 'default' }}"
+                        },
+                        {
+                            "id": "timestamp-val",
+                            "name": "timestamp",
+                            "type": "string",
+                            "value": "={{ $now.toISO() }}"
+                        }
+                    ]
+                }
+            },
+            "typeVersion": 3.3
+        },
+        {
+            "id": "ai-agent",
+            "name": "AI Agent",
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "position": [
+                900,
+                300
+            ],
+            "parameters": {
+                "text": "={{ $json.chatInput }}",
+                "tools": [
+                    {
+                        "name": "store_memory",
+                        "workflowId": "ce6EupmotKT949J9",
+                        "description": "Save important information to long-term memory with semantic embeddings. Supports: conversation (general snippets), task (action items), decision (important choices with rationale). Returns the ID of the stored item."
+                    },
+                    {
+                        "name": "search_memory",
+                        "workflowId": "h6Ioh5TxCFMQqxe1",
+                        "description": "Search past conversations, tasks, and decisions using semantic similarity. Returns ranked results with similarity scores. Use when user asks about past interactions, decisions, or similar tasks."
+                    },
+                    {
+                        "name": "context_manager",
+                        "workflowId": "WSGZcUc1WNGtI1KB",
+                        "description": "Get or set current working context (focus, goals, blockers). Returns key-value pairs of active context. Use when user shares what they're working on or asks about current state."
+                    },
+                    {
+                        "name": "manage_tasks",
+                        "workflowId": "6LTK56yhCWi1H34X",
+                        "description": "Manage tasks. REQUIRED parameter 'operation' must be one of: 'create' (also requires 'title', optional 'description', 'priority', 'deadline'), 'list_active' (lists all pending/in_progress tasks), 'update_status' (requires 'task_id', 'status'), 'complete' (requires 'task_id'), 'delete' (requires 'task_id'). Always include 'operation' parameter."
+                    },
+                    {
+                        "name": "task_analytics",
+                        "workflowId": "CUYNdcbLPz8NPBrM",
+                        "description": "Get comprehensive task performance analytics including: completion rate (30 days), average completion time, overdue count, priority breakdown, weekly trends, velocity (tasks/day), tag effectiveness, and health score (0-100). Use for weekly reviews, productivity reports, or when user asks about their performance."
+                    },
+                    {
+                        "name": "decision_tracker",
+                        "workflowId": "x2efZUWxPISsKeMF",
+                        "description": "Log, review, and analyze important decisions. Operations: 'log_decision' (requires title, decision, rationale, category), 'review_decisions' (optional filters), 'update_decision' (requires decision_id, status), 'analyze_patterns' (get decision analytics). Categories: technical, business, personal, strategic."
+                    },
+                    {
+                        "name": "calendar_read",
+                        "workflowId": "PGD0swPc7EDaWiZp",
+                        "description": "Fetch events from Google Calendar for a specific date. YOU MUST pass the 'query' parameter with the exact date string (e.g., query='January 9' or query='2026-01-09'). Without the query parameter, this tool will fail. Example call: calendar_read(query='January 9'). Returns events with id, summary, start, end."
+                    },
+                    {
+                        "name": "calendar_write",
+                        "workflowId": "qhsZJgb6SCYUfApM",
+                        "description": "Create, update, or delete Google Calendar events. REQUIRED parameter 'operation': 'create', 'update', or 'delete'. For create: requires 'title', 'start', 'end'. For delete: requires 'event_id' (get from calendar_read first). For update: requires 'event_id' plus fields to change."
+                    },
+                    {
+                        "name": "get_launch_status",
+                        "workflowId": "hVyWT0Vu0vxamxEy",
+                        "description": "Check the 4-week launch timeline progress. Returns milestones, status, target dates, and completion info. Use when user asks about launch progress, timeline, or milestones."
+                    },
+                    {
+                        "name": "launch_timeline_manager",
+                        "workflowId": "WsHg0cV5z6Ewk9hj",
+                        "description": "Advanced launch timeline management. Operations: 'update_milestone' (change status, mark complete), 'check_progress' (detailed breakdown with health status), 'identify_risks' (detect overdue milestones, blocked tasks, risk levels). Use for updates and risk assessment."
+                    },
+                    {
+                        "name": "cbt_therapist",
+                        "workflowId": "dPFQdzdJJPjN0f7J",
+                        "description": "Call the CBT Therapist Agent for deep cognitive distortion work. Use when: (1) user explicitly says 'I need to talk through something', (2) you detect severe or recurring cognitive distortions, (3) user is stuck in avoidance or negative thought loops. Provides CBT-based reframing with ADHD/entrepreneurship focus."
+                    },
+                    {
+                        "name": "n8n_troubleshooter",
+                        "workflowId": "XBA1QONxU-aMg5tFawyPS",
+                        "description": "Diagnose and troubleshoot n8n workflows. Use for checking system health, validating workflows, finding errors and bottlenecks, creating backups. Operations: 'health_check' (system health), 'validate_workflow' (check issues - needs workflow_id), 'get_failures' (recent errors - optional hours/limit), 'find_bottlenecks' (slow nodes - needs workflow_id), 'backup_workflow' (create backup - needs workflow_id), 'detect_repeated_failures' (find failing workflows), 'list_workflows' (list all workflows)."
+                    }
+                ],
+                "options": {
+                    "maxIterations": 25,
+                    "systemMessage": "=You are a Personal Assistant AI with persistent memory and **Coach Mode** for cognitive distortion detection, helping manage a 4-week product launch timeline.\n\n**Current Date**: {{ $now.format('yyyy-MM-dd') }}\n**Session ID**: {{ $json.session_id }}\n\n## Your Capabilities\n\nYou have access to these tools:\n\n### Memory & Context\n1. **store_memory**: Save conversations, tasks, or decisions to long-term memory with semantic embeddings\n2. **search_memory**: Retrieve past conversations, tasks, or decisions using semantic search\n3. **context_manager**: Get or set current working context (focus, goals, blockers)\n\n### Tasks & Productivity\n4. **manage_tasks**: Create, update status, list active tasks, or complete tasks\n5. **task_analytics**: Get comprehensive task performance analytics, completion rates, velocity, and health score\n6. **decision_tracker**: Log, review, and analyze important decisions with patterns\n\n### Calendar\n7. **calendar_read**: Fetch events from Google Calendar - ALWAYS pass query parameter with the date!\n8. **calendar_write**: Create, update, or delete calendar events\n\n**CRITICAL - Calendar Tool Usage**:\n- When using calendar_read, you MUST pass: query='<date>'\n- Example: If user asks about January 9, call calendar_read with query='January 9'\n- Example: If user asks about tomorrow, call calendar_read with query='tomorrow'\n- NEVER call calendar_read without the query parameter!\n\n## CALENDAR DELETE - INTELLIGENT ASSISTANT MODE\n\nWhen user requests deletion:\n\n**Step 1: ALWAYS Search First**\n- ALWAYS use calendar_read to search first\n- Extract event_id, title, date, time from search results\n- NEVER guess or hallucinate event IDs\n\n**Step 2: Calculate Confidence**\n- Exact title + correct date = 100% confidence\n- Exact title + no date specified = 80% confidence\n- Partial title + correct date = 70% confidence\n- Partial title + no date = 40% confidence\n- Multiple matches = require clarification\n\n**Step 3: Action Based on Confidence**\n\n**100% CONFIDENCE (exact match, single result):**\n- Delete IMMEDIATELY without asking\n- Respond: \"\u2705 Deleted: [Title] on [Date] at [Time]\"\n- Example: User says \"delete Daily Standup from Jan 9\", only ONE event matches exactly\n\n**70-99% CONFIDENCE:**\n- Show the match\n- Say: \"I found: [Title] on [Date] at [Time]. Delete this? (yes/no)\"\n- Wait for yes/no\n\n**MULTIPLE MATCHES OR <70%:**\n- List ALL matches with numbers:\n  \"I found multiple events:\n  1. Test Event - Jan 7 at 2pm\n  2. Test Meeting - Jan 9 at 4pm\n  3. Testing Session - Jan 10 at 10am\n  Which one should I delete? (reply with number)\"\n- Wait for response\n\n**Step 4: Smart Validation**\n- If user says \"delete from Friday\" but event is Thursday, mention: \"Note: this event is actually on Thursday\"\n- If deleting recurring event: \"This is a recurring event. Delete just this one or all occurrences?\"\n- If user provides wrong date: \"I found [Title] but it's on [ActualDate], not [RequestedDate]. Delete it anyway?\"\n\n**Step 5: Fuzzy Matching Rules**\n- \"Daily Standup\" matches \"Daily Standup, 9am\" (exact - 100%)\n- \"standup\" matches \"Daily Standup\" (partial but clear - 80%)\n- \"Test\" matches multiple events with \"Test\" in title (ambiguous - list all)\n\n### Launch & Progress\n9. **get_launch_status**: Check 4-week launch timeline progress (read-only)\n10. **launch_timeline_manager**: Update milestones, check detailed progress, identify risks\n\n### Coaching & Wellness\n11. **cbt_therapist**: Deep cognitive distortion work with CBT-based reframing\n\n## Coach Mode (Active on Every Interaction)\n\nYou actively monitor for cognitive distortions and gently challenge them:\n\n**Key Phrases to Flag**:\n- \"I'm not ready\" / \"I need to learn X first\" -> **Avoidance**\n- \"I can't\" / \"I'll never\" / \"I always fail\" -> **All-or-nothing thinking**\n- \"They'll think I'm a fraud\" -> **Imposter syndrome / Mind reading**\n- \"This will be a disaster\" -> **Catastrophizing**\n- \"I should have...\" -> **Should statements**\n- \"That win doesn't count because...\" -> **Discounting positives**\n\n**When You Detect a Pattern**:\n1. **Flag it gently**: \"I notice you're saying [pattern]. Is that really true?\"\n2. **Pull evidence**: Reference completed tasks, wins, or progress from memory/analytics\n3. **Offer perspective**: \"Last week you said the same thing about X, then completed it\"\n4. **Suggest escalation**: If severe, say: \"Would it help to talk this through with the CBT Therapist Agent?\"\n\n## Behavioral Guidelines\n\n- **Proactive**: Notice approaching deadlines AND cognitive patterns\n- **Data-driven**: Use task_analytics to back up observations with data\n- **Decision-aware**: Log important choices with decision_tracker\n- **Memory-aware**: Pull evidence of past wins to counter distortions\n- **Launch-oriented**: Keep the 4-week timeline in mind for all planning\n\n## Conversation Style\n\n- Be concise but thorough\n- Direct but warm when challenging distortions\n- Ask \"Is that true?\" when you hear negative self-talk\n- Pull evidence from their own history and analytics\n- Validate emotions while challenging thoughts\n\nRemember: You're here to help make this 4-week launch successful!\n"
+                }
+            },
+            "typeVersion": 1.7
+        },
+        {
+            "id": "openai-chat-model",
+            "name": "OpenAI Chat Model",
+            "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+            "position": [
+                900,
+                80
+            ],
+            "parameters": {
+                "model": "gpt-4o",
+                "options": {
+                    "maxTokens": 1000,
+                    "temperature": 0.7
+                }
+            },
+            "credentials": {
+                "openAiApi": {
+                    "id": "5DFuvUPLavfaWChn",
+                    "name": "OpenAi account"
+                }
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "postgres-chat-memory",
+            "name": "Postgres Chat Memory",
+            "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+            "position": [
+                1100,
+                80
+            ],
+            "parameters": {
+                "sessionKey": "={{ $('Extract Input').item.json.session_id }}",
+                "sessionIdType": "customKey",
+                "contextWindowLength": 10
+            },
+            "credentials": {
+                "postgres": {
+                    "id": "aVP8htYcA8y2UOih",
+                    "name": "Supabase Postgres server"
+                }
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "tool-store-memory",
+            "name": "Tool: Store Memory",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                300,
+                560
+            ],
+            "parameters": {
+                "name": "store_memory",
+                "schemaType": "manual",
+                "workflowId": "ce6EupmotKT949J9",
+                "description": "Save important information to long-term memory with semantic embeddings.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"type\": {\n      \"type\": \"string\",\n      \"enum\": [\"conversation\", \"task\", \"decision\"],\n      \"description\": \"Type of memory: conversation (general snippets), task (action items), decision (important choices)\"\n    },\n    \"content\": {\n      \"type\": \"string\",\n      \"description\": \"Content to store (for conversation type)\"\n    },\n    \"session_id\": {\n      \"type\": \"string\",\n      \"description\": \"Session identifier (for conversation type)\"\n    },\n    \"role\": {\n      \"type\": \"string\",\n      \"enum\": [\"user\", \"assistant\"],\n      \"description\": \"Message role (for conversation type)\"\n    },\n    \"message\": {\n      \"type\": \"string\",\n      \"description\": \"Message content (for conversation type)\"\n    },\n    \"title\": {\n      \"type\": \"string\",\n      \"description\": \"Title (for task/decision types)\"\n    },\n    \"description\": {\n      \"type\": \"string\",\n      \"description\": \"Detailed description\"\n    },\n    \"priority\": {\n      \"type\": \"string\",\n      \"enum\": [\"low\", \"medium\", \"high\", \"urgent\"],\n      \"description\": \"Priority level (for task type)\"\n    },\n    \"deadline\": {\n      \"type\": \"string\",\n      \"description\": \"ISO date string deadline (for task type)\"\n    },\n    \"decision\": {\n      \"type\": \"string\",\n      \"description\": \"The decision made (for decision type)\"\n    },\n    \"rationale\": {\n      \"type\": \"string\",\n      \"description\": \"Why this decision was made (for decision type)\"\n    },\n    \"category\": {\n      \"type\": \"string\",\n      \"enum\": [\"technical\", \"business\", \"personal\", \"strategic\"],\n      \"description\": \"Decision category (for decision type)\"\n    },\n    \"tags\": {\n      \"type\": \"array\",\n      \"items\": {\"type\": \"string\"},\n      \"description\": \"Optional tags for categorization\"\n    },\n    \"metadata\": {\n      \"type\": \"object\",\n      \"description\": \"Additional metadata as key-value pairs\"\n    }\n  },\n  \"required\": [\"type\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-search-memory",
+            "name": "Tool: Search Memory",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                300,
+                720
+            ],
+            "parameters": {
+                "name": "search_memory",
+                "workflowId": "h6Ioh5TxCFMQqxe1",
+                "description": "Search past conversations using semantic similarity."
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-context-manager",
+            "name": "Tool: Context Manager",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                300,
+                880
+            ],
+            "parameters": {
+                "name": "context_manager",
+                "workflowId": "WSGZcUc1WNGtI1KB",
+                "description": "Get or set current working context."
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-manage-tasks",
+            "name": "Tool: Manage Tasks",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                540,
+                560
+            ],
+            "parameters": {
+                "name": "manage_tasks",
+                "schemaType": "manual",
+                "workflowId": "6LTK56yhCWi1H34X",
+                "description": "Manage tasks: create, list, update, complete, delete.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"operation\": {\n      \"type\": \"string\",\n      \"description\": \"The operation to perform: list_active, create, complete, update_status, or delete\"\n    },\n    \"title\": {\n      \"type\": \"string\",\n      \"description\": \"Task title (for create operation)\"\n    },\n    \"description\": {\n      \"type\": \"string\",\n      \"description\": \"Task description (for create operation)\"\n    },\n    \"task_id\": {\n      \"type\": \"string\",\n      \"description\": \"Task ID (for complete, update_status, delete operations)\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"New status (for update_status operation)\"\n    },\n    \"priority\": {\n      \"type\": \"string\",\n      \"description\": \"Task priority: low, medium, high, urgent (for create operation)\"\n    }\n  },\n  \"required\": [\"operation\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-task-analytics",
+            "name": "Tool: Task Analytics",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                540,
+                720
+            ],
+            "parameters": {
+                "name": "task_analytics",
+                "workflowId": "CUYNdcbLPz8NPBrM",
+                "description": "Get task performance analytics: completion rates, velocity, trends, health score."
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-decision-tracker",
+            "name": "Tool: Decision Tracker",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                540,
+                880
+            ],
+            "parameters": {
+                "name": "decision_tracker",
+                "schemaType": "manual",
+                "workflowId": "x2efZUWxPISsKeMF",
+                "description": "Log, review, and analyze important decisions.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"operation\": {\n      \"type\": \"string\",\n      \"description\": \"Operation: log_decision, review_decisions, update_decision, analyze_patterns\"\n    },\n    \"title\": {\n      \"type\": \"string\",\n      \"description\": \"Decision title (for log_decision)\"\n    },\n    \"decision\": {\n      \"type\": \"string\",\n      \"description\": \"The decision made (for log_decision)\"\n    },\n    \"rationale\": {\n      \"type\": \"string\",\n      \"description\": \"Why this decision was made (for log_decision)\"\n    },\n    \"category\": {\n      \"type\": \"string\",\n      \"description\": \"Category: technical, business, personal, strategic (for log_decision)\"\n    },\n    \"decision_id\": {\n      \"type\": \"string\",\n      \"description\": \"Decision ID (for update_decision)\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"New status: active, revisited, reversed, archived (for update_decision)\"\n    }\n  },\n  \"required\": [\"operation\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-calendar-read",
+            "name": "Tool: Calendar Read",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                780,
+                560
+            ],
+            "parameters": {
+                "name": "calendar_read",
+                "schemaType": "manual",
+                "workflowId": "PGD0swPc7EDaWiZp",
+                "description": "Fetch events from Google Calendar for a specific date or date range.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"query\": {\n      \"type\": \"string\",\n      \"description\": \"Natural language date query. Examples: 'January 9', 'tomorrow', 'today', 'Jan 9 2026', 'next Monday'. REQUIRED - always provide the date the user is asking about.\"\n    },\n    \"date\": {\n      \"type\": \"string\",\n      \"description\": \"Specific date in YYYY-MM-DD format (e.g., '2026-01-09'). Use this OR query, not both.\"\n    },\n    \"start\": {\n      \"type\": \"string\",\n      \"description\": \"Start datetime in ISO format for custom range (e.g., '2026-01-09T00:00:00-08:00')\"\n    },\n    \"end\": {\n      \"type\": \"string\",\n      \"description\": \"End datetime in ISO format for custom range (e.g., '2026-01-09T23:59:59-08:00')\"\n    }\n  },\n  \"required\": [\"query\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-calendar-write",
+            "name": "Tool: Calendar Write",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                780,
+                720
+            ],
+            "parameters": {
+                "name": "calendar_write",
+                "schemaType": "manual",
+                "workflowId": "qhsZJgb6SCYUfApM",
+                "description": "Create, update, or delete calendar events.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"operation\": {\n      \"type\": \"string\",\n      \"enum\": [\"create\", \"update\", \"delete\"],\n      \"description\": \"Operation to perform: create, update, or delete\"\n    },\n    \"title\": {\n      \"type\": \"string\",\n      \"description\": \"Event title/summary (required for create, can be used with query/date for delete to search by name)\"\n    },\n    \"start\": {\n      \"type\": \"string\",\n      \"description\": \"Start datetime in ISO format (required for create)\"\n    },\n    \"end\": {\n      \"type\": \"string\",\n      \"description\": \"End datetime in ISO format (required for create)\"\n    },\n    \"description\": {\n      \"type\": \"string\",\n      \"description\": \"Event description/notes\"\n    },\n    \"location\": {\n      \"type\": \"string\",\n      \"description\": \"Event location\"\n    },\n    \"attendees\": {\n      \"type\": \"array\",\n      \"items\": {\"type\": \"string\"},\n      \"description\": \"Email addresses of attendees\"\n    },\n    \"event_id\": {\n      \"type\": \"string\",\n      \"description\": \"Event ID (for update/delete - if not provided for delete, will search using query/date)\"\n    },\n    \"query\": {\n      \"type\": \"string\",\n      \"description\": \"Search query for delete operation (e.g., 'Daily Standup on January 9'). Use when event_id is unknown. Will search and delete matching event.\"\n    },\n    \"date\": {\n      \"type\": \"string\",\n      \"description\": \"Date to search within for delete operation (e.g., 'January 9', '2026-01-09'). Used with query/title to find event before deleting.\"\n    },\n    \"calendar_id\": {\n      \"type\": \"string\",\n      \"description\": \"Calendar ID (default: primary)\"\n    }\n  },\n  \"required\": [\"operation\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-launch-status",
+            "name": "Tool: Get Launch Status",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                1020,
+                560
+            ],
+            "parameters": {
+                "name": "get_launch_status",
+                "workflowId": "hVyWT0Vu0vxamxEy",
+                "description": "Check 4-week launch timeline progress."
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-launch-timeline-manager",
+            "name": "Tool: Launch Timeline Manager",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                1020,
+                720
+            ],
+            "parameters": {
+                "name": "launch_timeline_manager",
+                "schemaType": "manual",
+                "workflowId": "WsHg0cV5z6Ewk9hj",
+                "description": "Update milestones, check progress, identify risks.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"operation\": {\n      \"type\": \"string\",\n      \"description\": \"Operation: update_milestone, check_progress, identify_risks\"\n    },\n    \"week\": {\n      \"type\": \"number\",\n      \"description\": \"Week number 1-4 (for update_milestone)\"\n    },\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"New status: completed, in_progress, at_risk (for update_milestone)\"\n    },\n    \"milestone_id\": {\n      \"type\": \"string\",\n      \"description\": \"Specific milestone ID (for update_milestone)\"\n    }\n  },\n  \"required\": [\"operation\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-cbt-therapist",
+            "name": "Tool: CBT Therapist",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                1260,
+                560
+            ],
+            "parameters": {
+                "name": "cbt_therapist",
+                "workflowId": "dPFQdzdJJPjN0f7J",
+                "description": "Deep cognitive distortion work with CBT reframing."
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "tool-n8n-troubleshooter",
+            "name": "Tool: N8n Troubleshooter",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "position": [
+                1260,
+                720
+            ],
+            "parameters": {
+                "name": "n8n_troubleshooter",
+                "schemaType": "manual",
+                "workflowId": "XBA1QONxU-aMg5tFawyPS",
+                "description": "Diagnose and troubleshoot n8n workflows. Use for checking system health, validating workflows, finding errors and bottlenecks, creating backups.",
+                "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"operation\": {\n      \"type\": \"string\",\n      \"enum\": [\"health_check\", \"validate_workflow\", \"get_failures\", \"find_bottlenecks\", \"backup_workflow\", \"detect_repeated_failures\", \"list_workflows\"],\n      \"description\": \"Operation to perform\"\n    },\n    \"workflow_id\": {\n      \"type\": \"string\",\n      \"description\": \"Workflow ID (required for validate_workflow, find_bottlenecks, backup_workflow)\"\n    },\n    \"hours\": {\n      \"type\": \"integer\",\n      \"description\": \"Time range in hours (for get_failures)\",\n      \"default\": 24\n    },\n    \"limit\": {\n      \"type\": \"integer\",\n      \"description\": \"Max results (for get_failures)\",\n      \"default\": 10\n    },\n    \"reason\": {\n      \"type\": \"string\",\n      \"description\": \"Reason for backup (for backup_workflow)\",\n      \"default\": \"ai-requested\"\n    }\n  },\n  \"required\": [\"operation\"]\n}",
+                "specifyInputSchema": true
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "format-response",
+            "name": "Format Response",
+            "type": "n8n-nodes-base.set",
+            "position": [
+                1200,
+                300
+            ],
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "response",
+                            "name": "response",
+                            "type": "string",
+                            "value": "={{ $json.output }}"
+                        },
+                        {
+                            "id": "session-id",
+                            "name": "session_id",
+                            "type": "string",
+                            "value": "={{ $('Extract Input').item.json.session_id }}"
+                        },
+                        {
+                            "id": "timestamp",
+                            "name": "timestamp",
+                            "type": "string",
+                            "value": "={{ $now.toISO() }}"
+                        },
+                        {
+                            "id": "tools-used",
+                            "name": "tools_used",
+                            "type": "array",
+                            "value": "={{ $json.intermediateSteps?.map(s => s.action.tool) || [] }}"
+                        }
+                    ]
+                }
+            },
+            "typeVersion": 3.3
+        },
+        {
+            "id": "respond-webhook",
+            "name": "Respond to Webhook",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "position": [
+                1440,
+                300
+            ],
+            "parameters": {
+                "options": {},
+                "respondWith": "json",
+                "responseBody": "={{ $json }}"
+            },
+            "typeVersion": 1.1
+        },
+        {
+            "id": "sticky-webhook",
+            "name": "Webhook Entry",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                180,
+                180
+            ],
+            "parameters": {
+                "color": 2,
+                "width": 280,
+                "height": 220,
+                "content": "## Webhook Entry\n\n**POST** `/assistant`\n\n**Input:**\n```json\n{\n  \"message\": \"...\",\n  \"session_id\": \"...\"\n}\n```"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-agent",
+            "name": "AI Agent Core",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                780,
+                -40
+            ],
+            "parameters": {
+                "color": 3,
+                "width": 440,
+                "height": 220,
+                "content": "## AI Agent Core\n\n**Model:** GPT-4o-mini\n**Memory:** Postgres (10 msgs)\n**Tools:** 12 connected\n**Coach Mode:** Active"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-response",
+            "name": "Response Formatting",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                1340,
+                180
+            ],
+            "parameters": {
+                "color": 5,
+                "width": 220,
+                "height": 220,
+                "content": "## Response\n\n**Returns:**\n- response\n- session_id\n- timestamp\n- tools_used[]"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-memory",
+            "name": "Memory Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                200,
+                480
+            ],
+            "parameters": {
+                "color": 2,
+                "width": 200,
+                "height": 440,
+                "content": "## Memory & Context\n\n- store_memory\n- search_memory\n- context_manager"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-tasks",
+            "name": "Task Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                440,
+                480
+            ],
+            "parameters": {
+                "color": 3,
+                "width": 200,
+                "height": 440,
+                "content": "## Tasks & Productivity\n\n- manage_tasks\n- task_analytics\n- decision_tracker"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-calendar",
+            "name": "Calendar Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                680,
+                480
+            ],
+            "parameters": {
+                "color": 4,
+                "width": 200,
+                "height": 280,
+                "content": "## Calendar\n\n- calendar_read\n- calendar_write"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-launch",
+            "name": "Launch Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                920,
+                480
+            ],
+            "parameters": {
+                "color": 6,
+                "width": 200,
+                "height": 280,
+                "content": "## Launch & Progress\n\n- get_launch_status\n- launch_timeline_manager"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-coaching",
+            "name": "Coaching Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                1160,
+                480
+            ],
+            "parameters": {
+                "color": 7,
+                "width": 200,
+                "height": 120,
+                "content": "## Coaching\n\n- cbt_therapist"
+            },
+            "typeVersion": 1
+        },
+        {
+            "id": "sticky-system",
+            "name": "System Tools",
+            "type": "n8n-nodes-base.stickyNote",
+            "position": [
+                1160,
+                640
+            ],
+            "parameters": {
+                "color": 1,
+                "width": 200,
+                "height": 120,
+                "content": "## System/DevOps\n\n- n8n_troubleshooter"
+            },
+            "typeVersion": 1
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Input",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Input": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "OpenAI Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Postgres Chat Memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Store Memory": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Search Memory": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Context Manager": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Manage Tasks": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Task Analytics": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Decision Tracker": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Calendar Read": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Calendar Write": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Get Launch Status": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: Launch Timeline Manager": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: CBT Therapist": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Tool: N8n Troubleshooter": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Webhook",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1",
+        "availableInMCP": false
+    },
+    "active": true,
+    "versionId": "916f28a3-1219-4e96-9841-4d38b072bc15",
+    "updatedAt": "2026-01-08T06:49:48.619+00:00"
+}
