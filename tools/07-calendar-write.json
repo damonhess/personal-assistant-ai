@@ -7,23 +7,17 @@
       "id": "728bfa3c-8867-4d14-bc2d-8c6f61bd6319",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "position": [
-        80,
-        272
-      ],
+      "position": [80, 272],
       "typeVersion": 1
     },
     {
       "parameters": {
-        "jsCode": "// Normalize Input - Fixed version v3 for calendar_write workflow\n// Handles: ai-agent wrapped {query: {...}}, structured input, AND legacy query string\n\n// PRIORITY 1: Handle ai-agent wrapping parameters in {query: {...}}\nif ($json.query && typeof $json.query === 'object' && $json.query.operation) {\n  const q = $json.query;\n  return [{\n    json: {\n      operation: q.operation,\n      title: q.title || q.summary || 'Untitled Event',\n      start: q.start,\n      end: q.end || (() => {\n        if (q.start) {\n          const startDate = new Date(q.start);\n          startDate.setHours(startDate.getHours() + 1);\n          return startDate.toISOString();\n        }\n        return null;\n      })(),\n      description: q.description || '',\n      location: q.location || '',\n      calendar_id: q.calendar_id || 'primary',\n      attendees: q.attendees || [],\n      event_id: q.event_id || null\n    }\n  }];\n}\n\n// PRIORITY 2: Structured input with operation at top level\nif ($json.operation) {\n  return [{\n    json: {\n      operation: $json.operation,\n      title: $json.title || $json.summary || 'Untitled Event',\n      start: $json.start,\n      end: $json.end || (() => {\n        if ($json.start) {\n          const startDate = new Date($json.start);\n          startDate.setHours(startDate.getHours() + 1);\n          return startDate.toISOString();\n        }\n        return null;\n      })(),\n      description: $json.description || '',\n      location: $json.location || '',\n      calendar_id: $json.calendar_id || 'primary',\n      attendees: $json.attendees || [],\n      event_id: $json.event_id || null\n    }\n  }];\n}\n\nthrow new Error('Invalid input: expected structured data with operation field or {query: {operation: ...}}');\n"
+        "jsCode": "// Normalize Input - v5 with restore by name and empty trash\nlet input = $json;\nif ($json.query && typeof $json.query === 'object' && $json.query.operation) {\n  input = $json.query;\n}\n\n// Handle undo/restore operation\nif (input.operation === 'undo' || input.operation === 'restore') {\n  return [{\n    json: {\n      operation: 'restore',\n      user_id: input.user_id || '50850e59-bea0-4076-83e0-85d5c7004004',\n      search_title: input.title || input.event_name || input.name || null,\n      deletion_id: input.deletion_id || null,\n      restore_last: !input.title && !input.event_name && !input.name && !input.deletion_id\n    }\n  }];\n}\n\n// Handle empty_trash operation\nif (input.operation === 'empty_trash') {\n  return [{\n    json: {\n      operation: 'empty_trash',\n      user_id: input.user_id || '50850e59-bea0-4076-83e0-85d5c7004004',\n      confirm: input.confirm || false\n    }\n  }];\n}\n\n// Handle delete operation\nif (input.operation === 'delete') {\n  return [{\n    json: {\n      operation: 'delete',\n      event_id: input.event_id || null,\n      title: input.title || input.summary || null,\n      query: input.query || null,\n      date: input.date || null,\n      calendar_id: input.calendar_id || 'primary',\n      user_id: input.user_id || '50850e59-bea0-4076-83e0-85d5c7004004'\n    }\n  }];\n}\n\n// Handle create operation\nif (input.operation === 'create') {\n  return [{\n    json: {\n      operation: 'create',\n      title: input.title || input.summary || 'Untitled Event',\n      start: input.start,\n      end: input.end || (() => {\n        if (input.start) {\n          const startDate = new Date(input.start);\n          startDate.setHours(startDate.getHours() + 1);\n          return startDate.toISOString();\n        }\n        return null;\n      })(),\n      description: input.description || '',\n      location: input.location || '',\n      calendar_id: input.calendar_id || 'primary',\n      attendees: input.attendees || [],\n      user_id: input.user_id || '50850e59-bea0-4076-83e0-85d5c7004004'\n    }\n  }];\n}\n\n// Handle update operation\nif (input.operation === 'update') {\n  return [{\n    json: {\n      operation: 'update',\n      event_id: input.event_id,\n      title: input.title || input.summary,\n      start: input.start,\n      end: input.end,\n      description: input.description,\n      location: input.location,\n      calendar_id: input.calendar_id || 'primary',\n      user_id: input.user_id || '50850e59-bea0-4076-83e0-85d5c7004004'\n    }\n  }];\n}\n\nthrow new Error('Invalid input: operation must be create, update, delete, restore, or empty_trash');\n"
       },
       "id": "1c7ba379-241d-41da-97b0-8939693e7949",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
-      "position": [
-        304,
-        272
-      ],
+      "position": [304, 272],
       "typeVersion": 2
     },
     {
@@ -31,76 +25,49 @@
         "rules": {
           "values": [
             {
+              "outputKey": "create",
               "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "id": "op-create",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "leftValue": "={{ $json.operation }}",
-                    "rightValue": "create"
-                  }
-                ],
-                "combinator": "and"
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-create", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "create" }]
               },
-              "renameOutput": true,
-              "outputKey": "create"
+              "renameOutput": true
             },
             {
+              "outputKey": "update",
               "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "id": "op-update",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "leftValue": "={{ $json.operation }}",
-                    "rightValue": "update"
-                  }
-                ],
-                "combinator": "and"
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-update", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "update" }]
               },
-              "renameOutput": true,
-              "outputKey": "update"
+              "renameOutput": true
             },
             {
+              "outputKey": "delete",
               "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "id": "op-delete",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "leftValue": "={{ $json.operation }}",
-                    "rightValue": "delete"
-                  }
-                ],
-                "combinator": "and"
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-delete", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "delete" }]
               },
-              "renameOutput": true,
-              "outputKey": "delete"
+              "renameOutput": true
+            },
+            {
+              "outputKey": "restore",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-restore", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "restore" }]
+              },
+              "renameOutput": true
+            },
+            {
+              "outputKey": "empty_trash",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-empty", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "empty_trash" }]
+              },
+              "renameOutput": true
             }
           ]
         },
@@ -109,111 +76,59 @@
       "id": "2f029c1f-0105-4abc-968a-e9254f5a4dd4",
       "name": "Route by Operation",
       "type": "n8n-nodes-base.switch",
-      "position": [
-        528,
-        256
-      ],
+      "position": [528, 272],
       "typeVersion": 3
     },
     {
       "parameters": {
-        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
-        "start": "={{ $('Normalize Input').item.json.start }}",
         "end": "={{ $('Normalize Input').item.json.end }}",
+        "start": "={{ $('Normalize Input').item.json.start }}",
+        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
         "additionalFields": {
-          "attendees": "={{ $('Normalize Input').item.json.attendees || [] }}",
-          "description": "={{ $('Normalize Input').item.json.description || '' }}",
+          "summary": "={{ $('Normalize Input').item.json.title }}",
           "location": "={{ $('Normalize Input').item.json.location || '' }}",
-          "summary": "={{ $('Normalize Input').item.json.title }}"
+          "attendees": "={{ $('Normalize Input').item.json.attendees || [] }}",
+          "description": "={{ $('Normalize Input').item.json.description || '' }}"
         }
       },
       "id": "6f731a7e-1c7f-43ec-b680-4c3538141329",
       "name": "Create Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
-      "position": [
-        752,
-        80
-      ],
+      "position": [752, 80],
       "typeVersion": 1,
       "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "wUsrGLavGaeKAELD",
-          "name": "Google Calendar account"
-        }
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
       }
     },
     {
       "parameters": {
-        "operation": "update",
-        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
         "eventId": "={{ $('Normalize Input').item.json.event_id }}",
+        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
+        "operation": "update",
         "updateFields": {
-          "description": "={{ $('Normalize Input').item.json.description || '' }}",
           "end": "={{ $('Normalize Input').item.json.end }}",
-          "location": "={{ $('Normalize Input').item.json.location || '' }}",
           "start": "={{ $('Normalize Input').item.json.start }}",
-          "summary": "={{ $('Normalize Input').item.json.title }}"
+          "summary": "={{ $('Normalize Input').item.json.title }}",
+          "location": "={{ $('Normalize Input').item.json.location || '' }}",
+          "description": "={{ $('Normalize Input').item.json.description || '' }}"
         }
       },
       "id": "86bd9aa8-d601-4e21-a71b-4166178bb192",
       "name": "Update Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
-      "position": [
-        752,
-        272
-      ],
+      "position": [752, 272],
       "typeVersion": 1,
       "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "wUsrGLavGaeKAELD",
-          "name": "Google Calendar account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "delete",
-        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
-        "eventId": "={{ $('Normalize Input').item.json.event_id }}",
-        "options": {}
-      },
-      "id": "e1b973a7-917f-432b-9a60-59e25a00e120",
-      "name": "Delete Calendar Event",
-      "type": "n8n-nodes-base.googleCalendar",
-      "position": [
-        752,
-        464
-      ],
-      "typeVersion": 1,
-      "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "wUsrGLavGaeKAELD",
-          "name": "Google Calendar account"
-        }
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
       }
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            {
-              "id": "success",
-              "name": "success",
-              "type": "boolean",
-              "value": "true"
-            },
-            {
-              "id": "operation",
-              "name": "operation",
-              "type": "string",
-              "value": "={{ $('Normalize Input').item.json.operation }}"
-            },
-            {
-              "id": "event-details",
-              "name": "event",
-              "type": "object",
-              "value": "={{ $json }}"
-            }
+            { "id": "success", "name": "success", "type": "boolean", "value": "true" },
+            { "id": "operation", "name": "operation", "type": "string", "value": "={{ $('Normalize Input').item.json.operation }}" },
+            { "id": "event-details", "name": "event", "type": "object", "value": "={{ $json }}" }
           ]
         },
         "options": {}
@@ -221,114 +136,268 @@
       "id": "ec693c1c-89cc-4a1a-a9a9-1e7d6f0674b8",
       "name": "Format Response",
       "type": "n8n-nodes-base.set",
-      "position": [
-        976,
-        272
-      ],
+      "position": [1424, 272],
       "typeVersion": 3.3
     },
     {
       "parameters": {
-        "content": "## Tool: Calendar Write\n\n**Purpose**:\nCreate, update, or delete Google Calendar events\\n\\n**Operations**:\\n- **create**: New event (requires: title, start, end)\\n- **update**: Modify event (requires: event_id, plus fields to update)\\n- **delete**: Remove event (requires: event_id)",
-        "height": 752,
-        "width": 1160,
+        "eventId": "={{ $('Normalize Input').item.json.event_id }}",
+        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
+        "operation": "get"
+      },
+      "id": "get-event-delete",
+      "name": "Get Event Before Delete",
+      "type": "n8n-nodes-base.googleCalendar",
+      "position": [752, 464],
+      "typeVersion": 1,
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "calendar_deletions",
+        "operation": "insert",
+        "fieldsToSend": {
+          "values": [
+            { "fieldName": "user_id", "fieldValue": "={{ $('Normalize Input').item.json.user_id }}" },
+            { "fieldName": "event_id", "fieldValue": "={{ $('Get Event Before Delete').item.json.id }}" },
+            { "fieldName": "event_data", "fieldValue": "={{ JSON.stringify($('Get Event Before Delete').item.json) }}" }
+          ]
+        }
+      },
+      "id": "store-deletion",
+      "name": "Store Deletion for Undo",
+      "type": "n8n-nodes-base.supabase",
+      "position": [976, 464],
+      "typeVersion": 1,
+      "credentials": {
+        "supabaseApi": { "id": "uNHyD6bGPyaszIwf", "name": "Self-hosted Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "eventId": "={{ $('Normalize Input').item.json.event_id }}",
+        "options": {},
+        "calendar": "={{ $('Normalize Input').item.json.calendar_id || 'primary' }}",
+        "operation": "delete"
+      },
+      "id": "delete-event",
+      "name": "Delete After Storing",
+      "type": "n8n-nodes-base.googleCalendar",
+      "position": [1200, 464],
+      "typeVersion": 1,
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "calendar_deletions",
+        "operation": "getAll",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'user_id=eq.' + $('Normalize Input').item.json.user_id + '&restored=eq.false&deleted_at=gt.' + new Date(Date.now() - 30*24*60*60*1000).toISOString() + '&order=deleted_at.desc' }}"
+      },
+      "id": "search-deletions",
+      "name": "Search Deletions",
+      "type": "n8n-nodes-base.supabase",
+      "position": [752, 656],
+      "typeVersion": 1,
+      "credentials": {
+        "supabaseApi": { "id": "uNHyD6bGPyaszIwf", "name": "Self-hosted Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find matching deletion for restore - v2 with name search\nconst input = $('Normalize Input').first().json;\nconst deletions = $input.all();\nconst searchTitle = input.search_title?.toLowerCase();\nconst deletionId = input.deletion_id;\nconst restoreLast = input.restore_last;\n\nif (!deletions || deletions.length === 0) {\n  return [{ json: { success: false, message: 'No deleted events found in trash. Nothing to restore.' } }];\n}\n\nlet matches = [];\n\n// If specific deletion_id provided, find it\nif (deletionId) {\n  const match = deletions.find(d => d.json.id === deletionId || d.json.id === parseInt(deletionId));\n  if (match) matches = [match];\n}\n// If searching by title\nelse if (searchTitle) {\n  matches = deletions.filter(d => {\n    let eventData = {};\n    try {\n      eventData = typeof d.json.event_data === 'string' ? JSON.parse(d.json.event_data) : d.json.event_data;\n    } catch(e) { return false; }\n    const title = (eventData.summary || '').toLowerCase();\n    return title.includes(searchTitle) || searchTitle.includes(title);\n  });\n}\n// If restore_last, get most recent\nelse if (restoreLast) {\n  matches = [deletions[0]];\n}\n\nif (matches.length === 0) {\n  return [{ json: { success: false, message: searchTitle \n    ? `No deleted event found matching \"${input.search_title}\". Use \"show trash\" to see available events.` \n    : 'No deleted events found to restore.' } }];\n}\n\nif (matches.length > 1) {\n  // Multiple matches - return list for user selection\n  const matchList = matches.map((m, i) => {\n    let eventData = typeof m.json.event_data === 'string' ? JSON.parse(m.json.event_data) : m.json.event_data;\n    return {\n      number: i + 1,\n      deletion_id: m.json.id,\n      title: eventData.summary || 'Untitled',\n      original_date: eventData.start?.dateTime || eventData.start?.date || 'Unknown',\n      deleted_at: m.json.deleted_at\n    };\n  });\n  return [{ json: { \n    success: false, \n    multiple_matches: true,\n    message: `Found ${matches.length} deleted events matching \"${input.search_title}\". Please specify which one to restore:`,\n    matches: matchList\n  } }];\n}\n\n// Single match - proceed with restore\nconst match = matches[0].json;\nlet eventData = typeof match.event_data === 'string' ? JSON.parse(match.event_data) : match.event_data;\n\nreturn [{\n  json: {\n    proceed: true,\n    deletion_id: match.id,\n    event_to_restore: eventData,\n    summary: eventData.summary,\n    start: eventData.start,\n    end: eventData.end,\n    description: eventData.description || '',\n    location: eventData.location || ''\n  }\n}];"
+      },
+      "id": "find-restore",
+      "name": "Find Event to Restore",
+      "type": "n8n-nodes-base.code",
+      "position": [976, 656],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "proceed",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "has-proceed", "operator": { "type": "boolean", "operation": "true" }, "leftValue": "={{ $json.proceed }}" }]
+              },
+              "renameOutput": true
+            },
+            {
+              "outputKey": "no_match",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "no-proceed", "operator": { "type": "boolean", "operation": "false" }, "leftValue": "={{ $json.proceed || false }}" }]
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-restore",
+      "name": "Check Restore Match",
+      "type": "n8n-nodes-base.switch",
+      "position": [1200, 656],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "end": "={{ $json.end?.dateTime || $json.end?.date }}",
+        "start": "={{ $json.start?.dateTime || $json.start?.date }}",
+        "calendar": "primary",
+        "additionalFields": {
+          "summary": "={{ $json.summary }}",
+          "location": "={{ $json.location || '' }}",
+          "description": "={{ $json.description || '' }}"
+        }
+      },
+      "id": "recreate-event",
+      "name": "Recreate Deleted Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "position": [1424, 600],
+      "typeVersion": 1,
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "calendar_deletions",
+        "operation": "update",
+        "matchType": "id",
+        "id": "={{ $('Find Event to Restore').item.json.deletion_id }}",
+        "fieldsToSend": {
+          "values": [{ "fieldName": "restored", "fieldValue": "={{ true }}" }]
+        }
+      },
+      "id": "mark-restored",
+      "name": "Mark as Restored",
+      "type": "n8n-nodes-base.supabase",
+      "position": [1648, 600],
+      "typeVersion": 1,
+      "credentials": {
+        "supabaseApi": { "id": "uNHyD6bGPyaszIwf", "name": "Self-hosted Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format restore success message\nconst restored = $('Find Event to Restore').first().json;\nconst newEvent = $('Recreate Deleted Event').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    operation: 'restore',\n    message: `Successfully restored \"${restored.summary}\" to your calendar.`,\n    restored_event: {\n      id: newEvent.id,\n      summary: newEvent.summary,\n      start: newEvent.start,\n      end: newEvent.end\n    }\n  }\n}];"
+      },
+      "id": "format-restore-success",
+      "name": "Format Restore Success",
+      "type": "n8n-nodes-base.code",
+      "position": [1872, 600],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "tableId": "calendar_deletions",
+        "operation": "delete",
+        "filterType": "string",
+        "filterString": "={{ 'user_id=eq.' + $('Normalize Input').item.json.user_id + '&restored=eq.false' }}"
+      },
+      "id": "empty-trash",
+      "name": "Empty Trash",
+      "type": "n8n-nodes-base.supabase",
+      "position": [752, 848],
+      "typeVersion": 1,
+      "credentials": {
+        "supabaseApi": { "id": "uNHyD6bGPyaszIwf", "name": "Self-hosted Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: true,\n    operation: 'empty_trash',\n    message: 'Trash has been emptied. All deleted events have been permanently removed.'\n  }\n}];"
+      },
+      "id": "format-empty-trash",
+      "name": "Format Empty Trash",
+      "type": "n8n-nodes-base.code",
+      "position": [976, 848],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "content": "## Tool: Calendar Write v2\n\n**Operations**:\n- **create**: New event\n- **update**: Modify event\n- **delete**: Remove event (stores in trash)\n- **restore**: Restore from trash (by name or last)\n- **empty_trash**: Permanently delete all trash",
+        "height": 280,
+        "width": 260,
         "color": 6
       },
       "id": "b4025a11-71f9-44f1-a5bd-28a37f1f73a1",
       "name": "Tool Documentation",
       "type": "n8n-nodes-base.stickyNote",
-      "position": [
-        16,
-        -96
-      ],
+      "position": [-140, 120],
       "typeVersion": 1
     }
   ],
   "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Normalize Input", "type": "main", "index": 0 }]]
+    },
     "Normalize Input": {
-      "main": [
-        [
-          {
-            "node": "Route by Operation",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Route by Operation", "type": "main", "index": 0 }]]
     },
     "Route by Operation": {
       "main": [
-        [
-          {
-            "node": "Create Calendar Event",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Update Calendar Event",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Delete Calendar Event",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Create Calendar Event", "type": "main", "index": 0 }],
+        [{ "node": "Update Calendar Event", "type": "main", "index": 0 }],
+        [{ "node": "Get Event Before Delete", "type": "main", "index": 0 }],
+        [{ "node": "Search Deletions", "type": "main", "index": 0 }],
+        [{ "node": "Empty Trash", "type": "main", "index": 0 }]
       ]
     },
     "Create Calendar Event": {
-      "main": [
-        [
-          {
-            "node": "Format Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Delete Calendar Event": {
-      "main": [
-        [
-          {
-            "node": "Format Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
     },
     "Update Calendar Event": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
+    },
+    "Get Event Before Delete": {
+      "main": [[{ "node": "Store Deletion for Undo", "type": "main", "index": 0 }]]
+    },
+    "Store Deletion for Undo": {
+      "main": [[{ "node": "Delete After Storing", "type": "main", "index": 0 }]]
+    },
+    "Delete After Storing": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
+    },
+    "Search Deletions": {
+      "main": [[{ "node": "Find Event to Restore", "type": "main", "index": 0 }]]
+    },
+    "Find Event to Restore": {
+      "main": [[{ "node": "Check Restore Match", "type": "main", "index": 0 }]]
+    },
+    "Check Restore Match": {
       "main": [
-        [
-          {
-            "node": "Format Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Recreate Deleted Event", "type": "main", "index": 0 }],
+        [{ "node": "Format Response", "type": "main", "index": 0 }]
       ]
     },
-    "Execute Workflow Trigger": {
-      "main": [
-        [
-          {
-            "node": "Normalize Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Recreate Deleted Event": {
+      "main": [[{ "node": "Mark as Restored", "type": "main", "index": 0 }]]
+    },
+    "Mark as Restored": {
+      "main": [[{ "node": "Format Restore Success", "type": "main", "index": 0 }]]
+    },
+    "Format Restore Success": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
+    },
+    "Empty Trash": {
+      "main": [[{ "node": "Format Empty Trash", "type": "main", "index": 0 }]]
+    },
+    "Format Empty Trash": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
     }
   },
   "active": true,
-  "settings": {
-    "executionOrder": "v1",
-    "availableInMCP": false
-  }
+  "settings": { "executionOrder": "v1", "availableInMCP": false }
 }

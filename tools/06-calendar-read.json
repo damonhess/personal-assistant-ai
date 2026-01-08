@@ -6,10 +6,7 @@
       "id": "trigger-node",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "position": [
-        80,
-        80
-      ],
+      "position": [80, 200],
       "parameters": {},
       "typeVersion": 1
     },
@@ -17,95 +14,136 @@
       "id": "normalize-input",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
-      "position": [
-        300,
-        80
-      ],
+      "position": [300, 200],
       "parameters": {
-        "jsCode": "// Normalize Input for Calendar Read\n// Handles: {query: {...}} wrapper, direct params, natural language\n// User timezone: America/Los_Angeles (PST: UTC-8, PDT: UTC-7)\n\nconst input = $input.first().json;\nlet rawInput = input;\n\n// Step 1: Unwrap {query: {...}} from ai-agent-main\nif (input.query && typeof input.query === 'object') {\n  rawInput = input.query;\n} else if (input.query && typeof input.query === 'string') {\n  rawInput = { text: input.query };\n}\n\n// Step 2: Check for direct structured input\nif (rawInput.start && rawInput.end) {\n  return [{ json: { start: rawInput.start, end: rawInput.end } }];\n}\n\nif (rawInput.date) {\n  const dateStr = rawInput.date;\n  return [{\n    json: {\n      start: dateStr + 'T00:00:00-08:00',\n      end: dateStr + 'T23:59:59-08:00'\n    }\n  }];\n}\n\n// Step 3: Parse natural language\nconst text = rawInput.text || rawInput.query || JSON.stringify(rawInput);\nconst lowerText = text.toLowerCase();\n\nconst now = new Date();\nlet targetDate = null;\n\nif (lowerText.includes('today')) {\n  targetDate = new Date(now);\n} else if (lowerText.includes('tomorrow')) {\n  targetDate = new Date(now);\n  targetDate.setDate(targetDate.getDate() + 1);\n} else if (lowerText.includes('yesterday')) {\n  targetDate = new Date(now);\n  targetDate.setDate(targetDate.getDate() - 1);\n}\n\nconst monthNames = ['january', 'february', 'march', 'april', 'may', 'june',\n                    'july', 'august', 'september', 'october', 'november', 'december'];\nconst monthAbbrev = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',\n                     'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];\n\nconst isoMatch = text.match(/(\\d{4})-(\\d{2})-(\\d{2})/);\nif (isoMatch) {\n  targetDate = new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));\n}\n\nif (!targetDate) {\n  for (let i = 0; i < monthNames.length; i++) {\n    const monthPattern = new RegExp(monthNames[i] + '\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i');\n    const abbrevPattern = new RegExp(monthAbbrev[i] + '\\\\.?\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i');\n\n    let match = text.match(monthPattern) || text.match(abbrevPattern);\n    if (match) {\n      const day = parseInt(match[1]);\n      const year = match[2] ? parseInt(match[2]) : now.getFullYear();\n      targetDate = new Date(year, i, day);\n      break;\n    }\n  }\n}\n\nif (!targetDate) {\n  const slashMatch = text.match(/(\\d{1,2})\\/(\\d{1,2})(?:\\/(\\d{2,4}))?/);\n  if (slashMatch) {\n    const month = parseInt(slashMatch[1]) - 1;\n    const day = parseInt(slashMatch[2]);\n    let year = slashMatch[3] ? parseInt(slashMatch[3]) : now.getFullYear();\n    if (year < 100) year += 2000;\n    targetDate = new Date(year, month, day);\n  }\n}\n\nif (!targetDate) {\n  targetDate = new Date(now);\n}\n\nconst year = targetDate.getFullYear();\nconst month = String(targetDate.getMonth() + 1).padStart(2, '0');\nconst day = String(targetDate.getDate()).padStart(2, '0');\n\nconst tzOffset = (targetDate.getMonth() >= 2 && targetDate.getMonth() <= 9) ? '-07:00' : '-08:00';\n\nconst startDateTime = year + '-' + month + '-' + day + 'T00:00:00' + tzOffset;\nconst endDateTime = year + '-' + month + '-' + day + 'T23:59:59' + tzOffset;\n\nreturn [{\n  json: {\n    start: startDateTime,\n    end: endDateTime,\n    requested_date: year + '-' + month + '-' + day\n  }\n}];"
+        "jsCode": "// Normalize Input for Calendar Read - v2 with trash support\n// Handles: events query, list_deletions (trash)\n\nconst input = $input.first().json;\nlet rawInput = input.query && typeof input.query === 'object' ? input.query : input.query && typeof input.query === 'string' ? { text: input.query } : input;\n\n// Check for list_deletions operation (show trash)\nconst text = (rawInput.text || rawInput.query || '').toLowerCase();\nif (rawInput.operation === 'list_deletions' || \n    text.includes('trash') || \n    text.includes('deleted') || \n    text.includes('show trash') ||\n    text.includes('view deleted')) {\n  return [{ \n    json: { \n      operation: 'list_deletions',\n      user_id: rawInput.user_id || '50850e59-bea0-4076-83e0-85d5c7004004'\n    } \n  }];\n}\n\n// Normal calendar event query\nif (rawInput.start && rawInput.end) return [{ json: { operation: 'get_events', start: rawInput.start, end: rawInput.end, requested_date: rawInput.start.split('T')[0] } }];\n\nconst queryText = rawInput.text || rawInput.query || JSON.stringify(rawInput);\nconst lowerText = queryText.toLowerCase();\n\nconst pstOffset = -8 * 60 * 60 * 1000;\nconst now = new Date(Date.now() + pstOffset + new Date().getTimezoneOffset() * 60 * 1000);\nlet targetDate = null;\n\nif (lowerText.includes('today')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());\nelse if (lowerText.includes('tomorrow')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);\nelse if (lowerText.includes('yesterday')) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);\n\nconst monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];\nif (!targetDate) {\n  for (let i = 0; i < monthNames.length; i++) {\n    const match = queryText.match(new RegExp(monthNames[i] + '\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i'));\n    if (match) {\n      targetDate = new Date(match[2] ? parseInt(match[2]) : now.getFullYear(), i, parseInt(match[1]));\n      break;\n    }\n  }\n}\n\nif (!targetDate) targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());\n\nconst y = targetDate.getFullYear();\nconst m = String(targetDate.getMonth() + 1).padStart(2, '0');\nconst d = String(targetDate.getDate()).padStart(2, '0');\n\nreturn [{ json: { operation: 'get_events', start: `${y}-${m}-${d}T00:00:00-08:00`, end: `${y}-${m}-${d}T23:59:59-08:00`, requested_date: `${y}-${m}-${d}`, query: queryText } }];"
       },
       "typeVersion": 2
     },
     {
+      "id": "route-operation",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "position": [520, 200],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "get_events",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-events", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "get_events" }]
+              },
+              "renameOutput": true
+            },
+            {
+              "outputKey": "list_deletions",
+              "conditions": {
+                "options": { "version": 1, "caseSensitive": true, "typeValidation": "strict" },
+                "combinator": "and",
+                "conditions": [{ "id": "op-trash", "operator": { "type": "string", "operation": "equals" }, "leftValue": "={{ $json.operation }}", "rightValue": "list_deletions" }]
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 3
+    },
+    {
       "id": "google-calendar",
-      "name": "Google Calendar - Get Events",
+      "name": "Google Calendar",
       "type": "n8n-nodes-base.googleCalendar",
-      "position": [
-        520,
-        80
-      ],
+      "position": [750, 100],
       "parameters": {
         "options": {
-          "timeMax": "={{ $json.end }}",
-          "timeMin": "={{ $json.start }}"
+          "timeMax": "={{ $('Normalize Input').item.json.end }}",
+          "timeMin": "={{ $('Normalize Input').item.json.start }}"
         },
-        "calendar": {
-          "__rl": true,
-          "mode": "list",
-          "value": "primary"
-        },
+        "calendar": { "__rl": true, "mode": "list", "value": "primary" },
         "operation": "getAll",
         "returnAll": true
       },
       "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "wUsrGLavGaeKAELD",
-          "name": "Google Calendar account"
-        }
+        "googleCalendarOAuth2Api": { "id": "wUsrGLavGaeKAELD", "name": "Google Calendar account" }
       },
       "typeVersion": 1.2
+    },
+    {
+      "id": "query-trash",
+      "name": "Query Trash",
+      "type": "n8n-nodes-base.supabase",
+      "position": [750, 300],
+      "parameters": {
+        "tableId": "calendar_deletions",
+        "operation": "getAll",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'user_id=eq.' + $('Normalize Input').item.json.user_id + '&restored=eq.false&deleted_at=gt.' + new Date(Date.now() - 30*24*60*60*1000).toISOString() + '&order=deleted_at.desc' }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": { "id": "uNHyD6bGPyaszIwf", "name": "Self-hosted Supabase account" }
+      },
+      "typeVersion": 1,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "format-trash",
+      "name": "Format Trash Output",
+      "type": "n8n-nodes-base.code",
+      "position": [980, 300],
+      "parameters": {
+        "jsCode": "// Format trash (deleted events) output - v2 handles empty results\nconst items = $input.all();\n\n// Filter out empty/invalid items (from alwaysOutputData)\nconst validItems = items.filter(item => item.json && item.json.id && item.json.event_data);\n\nconst deletedEvents = validItems.map(item => {\n  const record = item.json;\n  let eventData = {};\n  try {\n    eventData = typeof record.event_data === 'string' ? JSON.parse(record.event_data) : record.event_data;\n  } catch(e) {\n    eventData = { summary: 'Unknown Event' };\n  }\n  \n  const deletedAt = new Date(record.deleted_at);\n  const now = new Date();\n  const daysAgo = Math.floor((now - deletedAt) / (1000 * 60 * 60 * 24));\n  \n  return {\n    deletion_id: record.id,\n    event_id: record.event_id,\n    title: eventData.summary || 'Untitled Event',\n    original_date: eventData.start?.dateTime || eventData.start?.date || 'Unknown',\n    original_end: eventData.end?.dateTime || eventData.end?.date || null,\n    deleted_at: record.deleted_at,\n    deleted_days_ago: daysAgo,\n    can_restore: true,\n    description: eventData.description || null,\n    location: eventData.location || null\n  };\n});\n\nreturn [{\n  json: {\n    operation: 'list_deletions',\n    total_deleted: deletedEvents.length,\n    retention_days: 30,\n    message: deletedEvents.length > 0 \n      ? `Found ${deletedEvents.length} deleted event(s) in trash. Say \"restore [event name]\" to recover.`\n      : 'Trash is empty. No deleted events found in the last 30 days.',\n    deleted_events: deletedEvents\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "calc-confidence",
+      "name": "Calculate Match Confidence",
+      "type": "n8n-nodes-base.code",
+      "position": [980, 100],
+      "parameters": {
+        "jsCode": "const events = $('Google Calendar').all();\nconst normalizeInput = $('Normalize Input').first().json;\nconst searchQuery = (normalizeInput.query || normalizeInput.text || '').toLowerCase().trim();\nconst searchDate = normalizeInput.requested_date;\n\nif (!events || events.length === 0) {\n  return [{ json: { events: [], search_query: searchQuery, search_date: searchDate, total_events: 0, exact_match_count: 0, high_confidence_count: 0, best_match: null, multiple_matches: false } }];\n}\n\nconst scoredEvents = events.map(item => {\n  const e = item.json;\n  if (!e.id) return null;\n  \n  const title = (e.summary || '').toLowerCase().trim();\n  const eventDateStr = e.start?.dateTime || e.start?.date || '';\n  const eventDate = eventDateStr ? new Date(eventDateStr).toISOString().split('T')[0] : null;\n  \n  let confidence = 0;\n  const reasons = [];\n  \n  if (searchQuery) {\n    if (title === searchQuery) { confidence += 60; reasons.push('exact_title_match'); }\n    else if (title.includes(searchQuery)) { confidence += 40; reasons.push('partial_title_match'); }\n    else if (searchQuery.includes(title)) { confidence += 30; reasons.push('query_contains_title'); }\n    else {\n      const titleWords = title.split(/\\s+/);\n      const queryWords = searchQuery.split(/\\s+/);\n      const matchingWords = queryWords.filter(qw => titleWords.some(tw => tw.includes(qw) || qw.includes(tw)));\n      if (matchingWords.length > 0) { confidence += Math.min(20, Math.round(20 * (matchingWords.length / queryWords.length))); reasons.push('fuzzy_word_match'); }\n    }\n  }\n  \n  if (eventDate && searchDate) {\n    if (eventDate === searchDate) { confidence += 40; reasons.push('exact_date_match'); }\n    else {\n      const dayDiff = Math.abs((new Date(eventDate) - new Date(searchDate)) / (1000 * 60 * 60 * 24));\n      if (dayDiff <= 1) { confidence += 20; reasons.push('adjacent_date'); }\n    }\n  } else if (!searchQuery && searchDate) {\n    if (eventDate === searchDate) { confidence += 50; reasons.push('date_range_match'); }\n  } else if (!searchDate) { confidence += 10; reasons.push('no_date_filter'); }\n  \n  return { id: e.id, summary: e.summary || 'Untitled', start: e.start, end: e.end, description: e.description || null, location: e.location || null, status: e.status, confidence: confidence, match_reasons: reasons, is_exact_match: confidence === 100, is_high_confidence: confidence >= 70 };\n}).filter(e => e !== null);\n\nscoredEvents.sort((a, b) => b.confidence - a.confidence);\nconst exactMatches = scoredEvents.filter(e => e.is_exact_match);\nconst highConfidenceMatches = scoredEvents.filter(e => e.is_high_confidence);\n\nreturn [{ json: { events: scoredEvents, search_query: searchQuery, search_date: searchDate, total_events: scoredEvents.length, exact_match_count: exactMatches.length, high_confidence_count: highConfidenceMatches.length, best_match: scoredEvents[0] || null, multiple_matches: scoredEvents.length > 1 && (exactMatches.length > 1 || (exactMatches.length === 0 && highConfidenceMatches.length > 1)) } }];"
+      },
+      "typeVersion": 2
     },
     {
       "id": "format-output",
       "name": "Format Output",
       "type": "n8n-nodes-base.code",
-      "position": [
-        740,
-        80
-      ],
+      "position": [1210, 100],
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst requestedDate = $('Normalize Input').first().json.requested_date;\n\nconst events = items.map(item => {\n  const event = item.json;\n  return {\n    id: event.id,\n    summary: event.summary || null,\n    has_title: !!event.summary,\n    start: event.start,\n    end: event.end,\n    description: event.description || null,\n    location: event.location || null,\n    status: event.status\n  };\n});\n\nreturn [{\n  json: {\n    date: requestedDate,\n    total_events: events.length,\n    events_with_title: events.filter(e => e.has_title).length,\n    events_without_title: events.filter(e => !e.has_title).length,\n    events: events\n  }\n}];"
+        "jsCode": "const dateInfo = $('Normalize Input').first().json;\nconst requestedDate = dateInfo.requested_date;\nconst confidenceData = $('Calculate Match Confidence').first().json;\n\nconst highConfidenceCount = confidenceData.high_confidence_count || 0;\nconst exactMatchCount = confidenceData.exact_match_count || 0;\nconst hasMultipleMatches = highConfidenceCount > 1 || (exactMatchCount === 0 && confidenceData.events.length > 1);\n\nconst output = {\n  operation: 'get_events',\n  date: requestedDate,\n  total_events: confidenceData.total_events,\n  events: confidenceData.events.map((event, index) => ({ ...event, multiple_matches: hasMultipleMatches, result_rank: index + 1, total_results: confidenceData.total_events })),\n  search_query: confidenceData.search_query,\n  exact_match_count: exactMatchCount,\n  high_confidence_count: highConfidenceCount,\n  best_match: confidenceData.best_match,\n  multiple_matches: hasMultipleMatches\n};\n\nif (output.total_events === 0) output.message = 'No events scheduled for ' + requestedDate;\nelse if (output.exact_match_count === 1) output.message = 'Found exact match: ' + output.best_match.summary;\nelse if (output.multiple_matches) output.message = 'Found ' + output.total_events + ' events. Multiple possible matches - please confirm which one.';\nelse output.message = 'Found ' + output.total_events + ' event(s) for ' + requestedDate;\n\nreturn [{ json: output }];"
       },
       "typeVersion": 2
     }
   ],
   "connections": {
-    "Normalize Input": {
-      "main": [
-        [
-          {
-            "node": "Google Calendar - Get Events",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Execute Workflow Trigger": {
+      "main": [[{ "node": "Normalize Input", "type": "main", "index": 0 }]]
+    },
+    "Normalize Input": {
+      "main": [[{ "node": "Route by Operation", "type": "main", "index": 0 }]]
+    },
+    "Route by Operation": {
       "main": [
-        [
-          {
-            "node": "Normalize Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Google Calendar", "type": "main", "index": 0 }],
+        [{ "node": "Query Trash", "type": "main", "index": 0 }]
       ]
     },
-    "Google Calendar - Get Events": {
-      "main": [
-        [
-          {
-            "node": "Format Output",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Google Calendar": {
+      "main": [[{ "node": "Calculate Match Confidence", "type": "main", "index": 0 }]]
+    },
+    "Query Trash": {
+      "main": [[{ "node": "Format Trash Output", "type": "main", "index": 0 }]]
+    },
+    "Calculate Match Confidence": {
+      "main": [[{ "node": "Format Output", "type": "main", "index": 0 }]]
     }
   },
   "active": true,
-  "settings": {
-    "executionOrder": "v1"
-  }
+  "settings": { "executionOrder": "v1" }
 }
