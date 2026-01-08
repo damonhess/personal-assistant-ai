@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "n8n-troubleshooter": {
+      "command": "docker",
+      "args": ["exec", "-i", "n8n-troubleshooter", "python", "-m", "n8n_troubleshooter", "--mode", "mcp"]
+    }
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "name": "Advanced - Memory Consolidation (ARIA)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Archive old ARIA conversations (>90 days)\nUPDATE aria_conversations\nSET is_archived = true\nWHERE updated_at < NOW() - INTERVAL '90 days'\n  AND is_archived = false\n  AND id NOT IN (\n    SELECT DISTINCT conversation_id \n    FROM aria_messages \n    WHERE created_at >= NOW() - INTERVAL '30 days'\n  )\nRETURNING id, title, updated_at;"
+      },
+      "id": "archive-conversations",
+      "name": "Archive Old Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Deactivate stale unified memories\nUPDATE aria_unified_memory\nSET is_active = false\nWHERE created_at < NOW() - INTERVAL '180 days'\n  AND is_active = true\n  AND memory_type NOT IN ('preference', 'fact')  -- Keep permanent memories\nRETURNING id, memory_type, content;"
+      },
+      "id": "deactivate-stale-memory",
+      "name": "Deactivate Stale Memory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Clean up stale patterns\nUPDATE patterns\nSET is_active = false\nWHERE last_observed < NOW() - INTERVAL '60 days'\n  AND is_active = true\nRETURNING id, pattern_type, pattern_name;"
+      },
+      "id": "deactivate-stale-patterns",
+      "name": "Deactivate Stale Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Archive completed tasks (>30 days)\nWITH archived_tasks AS (\n  UPDATE tasks\n  SET metadata = metadata || '{\"archived\": true, \"archived_at\": \"' || NOW()::text || '\"}'::jsonb\n  WHERE status = 'completed'\n    AND completed_at < NOW() - INTERVAL '30 days'\n    AND (metadata->>'archived' IS NULL OR metadata->>'archived' = 'false')\n  RETURNING id, title, completed_at\n)\nSELECT COUNT(*) as archived_tasks_count FROM archived_tasks;"
+      },
+      "id": "archive-tasks",
+      "name": "Archive Completed Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Clean up expired context\nDELETE FROM context\nWHERE expires_at IS NOT NULL \n  AND expires_at < NOW()\nRETURNING context_key;"
+      },
+      "id": "clean-expired-context",
+      "name": "Clean Expired Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Expire old ARIA sessions\nUPDATE aria_sessions\nSET is_active = false\nWHERE last_activity < NOW() - INTERVAL '30 days'\n  AND is_active = true\nRETURNING id, device_name;"
+      },
+      "id": "expire-sessions",
+      "name": "Expire Old Sessions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get comprehensive database statistics\nSELECT \n  'aria_conversations' as table_name,\n  COUNT(*) as row_count,\n  COUNT(*) FILTER (WHERE is_archived = false) as active_count,\n  pg_size_pretty(pg_total_relation_size('aria_conversations')) as size\nFROM aria_conversations\nUNION ALL\nSELECT \n  'aria_messages',\n  COUNT(*),\n  COUNT(*),\n  pg_size_pretty(pg_total_relation_size('aria_messages'))\nFROM aria_messages\nUNION ALL\nSELECT \n  'aria_unified_memory',\n  COUNT(*),\n  COUNT(*) FILTER (WHERE is_active = true),\n  pg_size_pretty(pg_total_relation_size('aria_unified_memory'))\nFROM aria_unified_memory\nUNION ALL\nSELECT \n  'tasks',\n  COUNT(*),\n  COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled')),\n  pg_size_pretty(pg_total_relation_size('tasks'))\nFROM tasks\nUNION ALL\nSELECT \n  'decisions',\n  COUNT(*),\n  COUNT(*) FILTER (WHERE status = 'active'),\n  pg_size_pretty(pg_total_relation_size('decisions'))\nFROM decisions\nUNION ALL\nSELECT \n  'patterns',\n  COUNT(*),\n  COUNT(*) FILTER (WHERE is_active = true),\n  pg_size_pretty(pg_total_relation_size('patterns'))\nFROM patterns\nUNION ALL\nSELECT \n  'context',\n  COUNT(*),\n  COUNT(*) FILTER (WHERE expires_at IS NULL OR expires_at > NOW()),\n  pg_size_pretty(pg_total_relation_size('context'))\nFROM context;"
+      },
+      "id": "get-statistics",
+      "name": "Get Database Statistics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate consolidation results\nconst allItems = $input.all();\n\nconst archivedConvs = allItems.filter(i => i.json.title && i.json.is_archived !== undefined).length;\nconst deactivatedMemory = allItems.filter(i => i.json.memory_type && i.json.is_active === false).length;\nconst deactivatedPatterns = allItems.filter(i => i.json.pattern_type).length;\nconst archivedTasks = allItems.find(i => i.json.archived_tasks_count !== undefined)?.json.archived_tasks_count || 0;\nconst expiredContext = allItems.filter(i => i.json.context_key && !i.json.table_name).length;\nconst expiredSessions = allItems.filter(i => i.json.device_name).length;\nconst stats = allItems.filter(i => i.json.table_name).map(i => i.json);\n\nreturn {\n  json: {\n    timestamp: new Date().toISOString(),\n    consolidation_summary: {\n      archived_conversations: archivedConvs,\n      deactivated_unified_memory: deactivatedMemory,\n      deactivated_patterns: deactivatedPatterns,\n      archived_tasks: archivedTasks,\n      expired_context: expiredContext,\n      expired_sessions: expiredSessions\n    },\n    database_stats: stats,\n    status: 'success'\n  }\n};"
+      },
+      "id": "summarize-results",
+      "name": "Summarize Consolidation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        1180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Memory Consolidation (ARIA Edition)\n\n**Runs**: Weekly\n\n**Purpose**: Clean up and archive old data from unified schema\n\n**Actions**:\n\n1. **Archive ARIA Conversations**\n   - >90 days old, not recently active\n   - Sets is_archived = true\n\n2. **Deactivate Stale Unified Memory**\n   - >180 days old\n   - Preserves permanent memories (preferences, facts)\n\n3. **Deactivate Stale Patterns**\n   - Not observed in 60 days\n\n4. **Archive Completed Tasks**\n   - Completed >30 days ago\n\n5. **Clean Expired Context**\n   - Remove expired entries\n\n6. **Expire Old Sessions**\n   - Inactive >30 days\n\n7. **Generate Statistics**\n   - Row counts per table\n   - Active vs archived counts\n   - Storage sizes",
+        "height": 1160,
+        "width": 620,
+        "color": 1
+      },
+      "id": "sticky-documentation",
+      "name": "Agent Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        140
+      ],
+      "width": 520,
+      "height": 1240
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Archive Old Conversations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Deactivate Stale Memory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Deactivate Stale Patterns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Archive Completed Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clean Expired Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Expire Old Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Old Conversations": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deactivate Stale Memory": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deactivate Stale Patterns": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Completed Tasks": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Expired Context": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expire Old Sessions": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Database Statistics": {
+      "main": [
+        [
+          {
+            "node": "Summarize Consolidation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "automation",
+    "maintenance",
+    "aria"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

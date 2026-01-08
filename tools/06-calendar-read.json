@@ -1,0 +1,111 @@
+{
+  "id": "PGD0swPc7EDaWiZp",
+  "name": "06 - Calendar Read",
+  "nodes": [
+    {
+      "id": "trigger-node",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        80,
+        80
+      ],
+      "parameters": {},
+      "typeVersion": 1
+    },
+    {
+      "id": "normalize-input",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        300,
+        80
+      ],
+      "parameters": {
+        "jsCode": "// Normalize Input for Calendar Read\n// Handles: {query: {...}} wrapper, direct params, natural language\n// User timezone: America/Los_Angeles (PST: UTC-8, PDT: UTC-7)\n\nconst input = $input.first().json;\nlet rawInput = input;\n\n// Step 1: Unwrap {query: {...}} from ai-agent-main\nif (input.query && typeof input.query === 'object') {\n  rawInput = input.query;\n} else if (input.query && typeof input.query === 'string') {\n  rawInput = { text: input.query };\n}\n\n// Step 2: Check for direct structured input\nif (rawInput.start && rawInput.end) {\n  return [{ json: { start: rawInput.start, end: rawInput.end } }];\n}\n\nif (rawInput.date) {\n  const dateStr = rawInput.date;\n  return [{\n    json: {\n      start: dateStr + 'T00:00:00-08:00',\n      end: dateStr + 'T23:59:59-08:00'\n    }\n  }];\n}\n\n// Step 3: Parse natural language\nconst text = rawInput.text || rawInput.query || JSON.stringify(rawInput);\nconst lowerText = text.toLowerCase();\n\nconst now = new Date();\nlet targetDate = null;\n\nif (lowerText.includes('today')) {\n  targetDate = new Date(now);\n} else if (lowerText.includes('tomorrow')) {\n  targetDate = new Date(now);\n  targetDate.setDate(targetDate.getDate() + 1);\n} else if (lowerText.includes('yesterday')) {\n  targetDate = new Date(now);\n  targetDate.setDate(targetDate.getDate() - 1);\n}\n\nconst monthNames = ['january', 'february', 'march', 'april', 'may', 'june',\n                    'july', 'august', 'september', 'october', 'november', 'december'];\nconst monthAbbrev = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',\n                     'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];\n\nconst isoMatch = text.match(/(\\d{4})-(\\d{2})-(\\d{2})/);\nif (isoMatch) {\n  targetDate = new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));\n}\n\nif (!targetDate) {\n  for (let i = 0; i < monthNames.length; i++) {\n    const monthPattern = new RegExp(monthNames[i] + '\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i');\n    const abbrevPattern = new RegExp(monthAbbrev[i] + '\\\\.?\\\\s+(\\\\d{1,2})(?:[,\\\\s]+(\\\\d{4}))?', 'i');\n\n    let match = text.match(monthPattern) || text.match(abbrevPattern);\n    if (match) {\n      const day = parseInt(match[1]);\n      const year = match[2] ? parseInt(match[2]) : now.getFullYear();\n      targetDate = new Date(year, i, day);\n      break;\n    }\n  }\n}\n\nif (!targetDate) {\n  const slashMatch = text.match(/(\\d{1,2})\\/(\\d{1,2})(?:\\/(\\d{2,4}))?/);\n  if (slashMatch) {\n    const month = parseInt(slashMatch[1]) - 1;\n    const day = parseInt(slashMatch[2]);\n    let year = slashMatch[3] ? parseInt(slashMatch[3]) : now.getFullYear();\n    if (year < 100) year += 2000;\n    targetDate = new Date(year, month, day);\n  }\n}\n\nif (!targetDate) {\n  targetDate = new Date(now);\n}\n\nconst year = targetDate.getFullYear();\nconst month = String(targetDate.getMonth() + 1).padStart(2, '0');\nconst day = String(targetDate.getDate()).padStart(2, '0');\n\nconst tzOffset = (targetDate.getMonth() >= 2 && targetDate.getMonth() <= 9) ? '-07:00' : '-08:00';\n\nconst startDateTime = year + '-' + month + '-' + day + 'T00:00:00' + tzOffset;\nconst endDateTime = year + '-' + month + '-' + day + 'T23:59:59' + tzOffset;\n\nreturn [{\n  json: {\n    start: startDateTime,\n    end: endDateTime,\n    requested_date: year + '-' + month + '-' + day\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar - Get Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "position": [
+        520,
+        80
+      ],
+      "parameters": {
+        "options": {
+          "timeMax": "={{ $json.end }}",
+          "timeMin": "={{ $json.start }}"
+        },
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
+        "operation": "getAll",
+        "returnAll": true
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "wUsrGLavGaeKAELD",
+          "name": "Google Calendar account"
+        }
+      },
+      "typeVersion": 1.2
+    },
+    {
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        740,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst requestedDate = $('Normalize Input').first().json.requested_date;\n\nconst events = items.map(item => {\n  const event = item.json;\n  return {\n    id: event.id,\n    summary: event.summary || null,\n    has_title: !!event.summary,\n    start: event.start,\n    end: event.end,\n    description: event.description || null,\n    location: event.location || null,\n    status: event.status\n  };\n});\n\nreturn [{\n  json: {\n    date: requestedDate,\n    total_events: events.length,\n    events_with_title: events.filter(e => e.has_title).length,\n    events_without_title: events.filter(e => !e.has_title).length,\n    events: events\n  }\n}];"
+      },
+      "typeVersion": 2
+    }
+  ],
+  "connections": {
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar - Get Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar - Get Events": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,230 @@
+{
+  "name": "Advanced - Launch Timeline Manager",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        420,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-update",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "update_milestone",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "update"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-progress",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "check_progress",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "progress"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-risks",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "identify_risks",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "risks"
+            }
+          ]
+        }
+      },
+      "id": "switch-operation",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        420,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE launch_timeline\nSET \n  status = '{{ $('Execute Workflow Trigger').item.json.new_status }}',\n  {{ $('Execute Workflow Trigger').item.json.completed_date ? \"completed_date = '\" + $('Execute Workflow Trigger').item.json.completed_date + \"'::date,\" : \"\" }}\n  updated_at = NOW()\nWHERE week_number = {{ $('Execute Workflow Trigger').item.json.week_number }}\nRETURNING *;"
+      },
+      "id": "update-milestone",
+      "name": "Update Milestone",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check overall timeline progress\nWITH progress_stats AS (\n  SELECT \n    week_number,\n    milestone,\n    status,\n    target_date,\n    completed_date,\n    CASE \n      WHEN status = 'completed' THEN 100\n      WHEN status = 'in_progress' THEN 50\n      WHEN status = 'not_started' THEN 0\n      WHEN status = 'at_risk' THEN 25\n      ELSE 0\n    END as progress_pct,\n    EXTRACT(EPOCH FROM (target_date - NOW())) / 86400 as days_remaining,\n    array_length(related_tasks, 1) as task_count,\n    (\n      SELECT COUNT(*) \n      FROM tasks t \n      WHERE t.id = ANY(launch_timeline.related_tasks) \n        AND t.status = 'completed'\n    ) as completed_tasks\n  FROM launch_timeline\n)\nSELECT \n  week_number,\n  milestone,\n  status,\n  progress_pct,\n  ROUND(days_remaining, 1) as days_remaining,\n  task_count,\n  completed_tasks,\n  CASE \n    WHEN task_count > 0 THEN ROUND((completed_tasks::numeric / task_count) * 100, 1)\n    ELSE 0\n  END as task_completion_pct,\n  CASE \n    WHEN status = 'completed' THEN 'on_time'\n    WHEN days_remaining < 0 THEN 'overdue'\n    WHEN days_remaining < 2 AND status != 'in_progress' THEN 'at_risk'\n    ELSE 'on_track'\n  END as health_status\nFROM progress_stats\nORDER BY week_number;"
+      },
+      "id": "check-progress",
+      "name": "Check Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Identify timeline risks\nWITH risk_analysis AS (\n  SELECT \n    l.week_number,\n    l.milestone,\n    l.status,\n    l.target_date,\n    EXTRACT(EPOCH FROM (l.target_date - NOW())) / 86400 as days_remaining,\n    array_length(l.related_tasks, 1) as total_tasks,\n    (\n      SELECT COUNT(*) \n      FROM tasks t \n      WHERE t.id = ANY(l.related_tasks) \n        AND t.status IN ('pending', 'blocked')\n    ) as pending_tasks,\n    (\n      SELECT COUNT(*) \n      FROM tasks t \n      WHERE t.id = ANY(l.related_tasks) \n        AND t.deadline < NOW()\n        AND t.status != 'completed'\n    ) as overdue_tasks,\n    (\n      SELECT json_agg(json_build_object('task_id', t.id, 'title', t.title, 'status', t.status))\n      FROM tasks t \n      WHERE t.id = ANY(l.related_tasks) \n        AND t.status = 'blocked'\n    ) as blocked_tasks\n  FROM launch_timeline l\n  WHERE l.status != 'completed'\n)\nSELECT \n  week_number,\n  milestone,\n  CASE \n    WHEN days_remaining < 0 THEN 'critical'\n    WHEN days_remaining < 3 AND status = 'not_started' THEN 'high'\n    WHEN overdue_tasks > 0 THEN 'high'\n    WHEN pending_tasks > total_tasks * 0.7 THEN 'medium'\n    WHEN blocked_tasks IS NOT NULL THEN 'medium'\n    ELSE 'low'\n  END as risk_level,\n  json_build_object(\n    'days_remaining', ROUND(days_remaining, 1),\n    'total_tasks', total_tasks,\n    'pending_tasks', pending_tasks,\n    'overdue_tasks', overdue_tasks,\n    'blocked_tasks', blocked_tasks\n  ) as risk_factors\nFROM risk_analysis\nWHERE days_remaining < 0 \n  OR overdue_tasks > 0 \n  OR blocked_tasks IS NOT NULL\n  OR (days_remaining < 3 AND status = 'not_started')\nORDER BY \n  CASE \n    WHEN days_remaining < 0 THEN 1\n    WHEN overdue_tasks > 0 THEN 2\n    WHEN blocked_tasks IS NOT NULL THEN 3\n    ELSE 4\n  END,\n  week_number;"
+      },
+      "id": "identify-risks",
+      "name": "Identify Risks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        1180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\ude80 Launch Timeline Manager\n\n**Purpose**: Manage 4-week launch timeline\n\n**Operations**:\n\n**update_milestone**:\n- Update status for a week\n- Mark as completed\n- Change to at_risk/in_progress\n\n**check_progress**:\n- Overall completion %\n- Per-week status\n- Task completion rates\n- Days remaining\n- Health status\n\n**identify_risks**:\n- Overdue milestones\n- Blocked tasks\n- Pending work\n- Risk levels (critical/high/medium/low)\n\n**Integration**:\n- AI Agent tool access\n- Linked to tasks table\n- Automatic risk detection\n- Progress tracking",
+        "height": 1200,
+        "width": 400,
+        "color": 2
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        340,
+        140
+      ],
+      "width": 360,
+      "height": 1500
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Route by Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Operation": {
+      "main": [
+        [
+          {
+            "node": "Update Milestone",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Progress",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Identify Risks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "tool",
+    "timeline"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

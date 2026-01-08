@@ -1,0 +1,227 @@
+{
+  "name": "Tool - Context Manager",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-get",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "get",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "get"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-set",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "set",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "set"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-delete",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-operation",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        400,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM get_current_context();"
+      },
+      "id": "get-context",
+      "name": "Get Current Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        280,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO context (context_key, context_value, context_type, metadata)\nVALUES (\n  '{{ $('Execute Workflow Trigger').item.json.key }}',\n  '{{ JSON.stringify($('Execute Workflow Trigger').item.json.value) }}'::jsonb,\n  '{{ $('Execute Workflow Trigger').item.json.context_type || \"general\" }}',\n  '{{ JSON.stringify($('Execute Workflow Trigger').item.json.metadata || {}) }}'::jsonb\n)\nON CONFLICT (context_key) DO UPDATE\nSET \n  context_value = EXCLUDED.context_value,\n  context_type = EXCLUDED.context_type,\n  metadata = EXCLUDED.metadata,\n  updated_at = NOW()\nRETURNING id, context_key, context_value, context_type, created_at, updated_at;"
+      },
+      "id": "set-context",
+      "name": "Set/Update Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=DELETE FROM context\nWHERE context_key = '{{ $('Execute Workflow Trigger').item.json.key }}'\nRETURNING context_key;"
+      },
+      "id": "delete-context",
+      "name": "Delete Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        400,
+        860
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\uddc2\ufe0f Tool: Context Manager\n\n**Purpose**: Manage working context (focus, goals, blockers)\n\n**Operations**:\n- get: Retrieve all active context\n- set: Create/update context by key\n- delete: Remove context by key\n\n**Tool Description for AI**:\nGet or set current working context (focus, goals, blockers). Returns key-value pairs of active context. Use when user shares what they're working on or asks about current state.",
+        "height": 900,
+        "width": 600,
+        "color": 1
+      },
+      "id": "sticky-note",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        120
+      ],
+      "width": 520,
+      "height": 1100
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Route by Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Operation": {
+      "main": [
+        [
+          {
+            "node": "Get Current Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set/Update Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": ""
+}

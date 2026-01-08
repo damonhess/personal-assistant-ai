@@ -1,0 +1,251 @@
+{
+  "name": "Advanced - Memory Consolidation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Archive old conversations (>90 days)\nWITH archived AS (\n  DELETE FROM conversations\n  WHERE timestamp < NOW() - INTERVAL '90 days'\n    AND role != 'system'\n    AND session_id NOT IN (\n      SELECT DISTINCT session_id \n      FROM conversations \n      WHERE timestamp >= NOW() - INTERVAL '30 days'\n    )\n  RETURNING id, session_id, timestamp\n)\nSELECT COUNT(*) as archived_count FROM archived;"
+      },
+      "id": "archive-conversations",
+      "name": "Archive Old Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Clean up stale patterns\nUPDATE patterns\nSET is_active = false\nWHERE last_observed < NOW() - INTERVAL '60 days'\n  AND is_active = true\nRETURNING id, pattern_type, pattern_name;"
+      },
+      "id": "deactivate-stale-patterns",
+      "name": "Deactivate Stale Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Archive completed tasks (>30 days)\nWITH archived_tasks AS (\n  UPDATE tasks\n  SET metadata = metadata || '{\"archived\": true, \"archived_at\": \"' || NOW()::text || '\"}'::jsonb\n  WHERE status = 'completed'\n    AND completed_at < NOW() - INTERVAL '30 days'\n    AND (metadata->>'archived' IS NULL OR metadata->>'archived' = 'false')\n  RETURNING id, title, completed_at\n)\nSELECT COUNT(*) as archived_tasks_count FROM archived_tasks;"
+      },
+      "id": "archive-tasks",
+      "name": "Archive Completed Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Clean up expired context\nDELETE FROM context\nWHERE expires_at IS NOT NULL \n  AND expires_at < NOW()\nRETURNING context_key;"
+      },
+      "id": "clean-expired-context",
+      "name": "Clean Expired Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Get database statistics\nSELECT \n  'conversations' as table_name,\n  COUNT(*) as row_count,\n  pg_size_pretty(pg_total_relation_size('conversations')) as size\nFROM conversations\nUNION ALL\nSELECT \n  'tasks' as table_name,\n  COUNT(*) as row_count,\n  pg_size_pretty(pg_total_relation_size('tasks')) as size\nFROM tasks\nUNION ALL\nSELECT \n  'decisions' as table_name,\n  COUNT(*) as row_count,\n  pg_size_pretty(pg_total_relation_size('decisions')) as size\nFROM decisions\nUNION ALL\nSELECT \n  'patterns' as table_name,\n  COUNT(*) as row_count,\n  pg_size_pretty(pg_total_relation_size('patterns')) as size\nFROM patterns\nUNION ALL\nSELECT \n  'context' as table_name,\n  COUNT(*) as row_count,\n  pg_size_pretty(pg_total_relation_size('context')) as size\nFROM context;"
+      },
+      "id": "get-statistics",
+      "name": "Get Database Statistics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate consolidation results\nconst allItems = $input.all();\n\nconst archivedConvs = allItems.find(i => i.json.archived_count !== undefined)?.json.archived_count || 0;\nconst deactivatedPatterns = allItems.filter(i => i.json.pattern_type).length;\nconst archivedTasks = allItems.find(i => i.json.archived_tasks_count !== undefined)?.json.archived_tasks_count || 0;\nconst expiredContext = allItems.filter(i => i.json.context_key).length;\nconst stats = allItems.filter(i => i.json.table_name).map(i => i.json);\n\nreturn {\n  json: {\n    timestamp: new Date().toISOString(),\n    consolidation_summary: {\n      archived_conversations: archivedConvs,\n      deactivated_patterns: deactivatedPatterns,\n      archived_tasks: archivedTasks,\n      expired_context: expiredContext\n    },\n    database_stats: stats,\n    total_space_freed: `~${(archivedConvs * 2 + archivedTasks * 1) / 1024}MB (estimate)`\n  }\n};"
+      },
+      "id": "summarize-results",
+      "name": "Summarize Consolidation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\uddc4\ufe0f Memory Consolidation\n\n**Runs**: Weekly (every 7 days)\n\n**Purpose**: Clean up and archive old data\n\n**Actions Performed**:\n\n1. **Archive Conversations**:\n   - >90 days old\n   - Not from active sessions\n   - Preserve system messages\n\n2. **Deactivate Stale Patterns**:\n   - Not observed in 60 days\n   - Mark as inactive\n\n3. **Archive Completed Tasks**:\n   - Completed >30 days ago\n   - Add archived flag to metadata\n   - Keep in database for analytics\n\n4. **Clean Expired Context**:\n   - Remove expired entries\n   - Free up storage\n\n5. **Generate Statistics**:\n   - Row counts per table\n   - Storage sizes\n   - Space freed estimate\n\n**Benefits**:\n- Reduced database size\n- Faster queries\n- Better performance\n- Organized historical data",
+        "height": 960,
+        "width": 620,
+        "color": 1
+      },
+      "id": "sticky-documentation",
+      "name": "Agent Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        140
+      ],
+      "width": 520,
+      "height": 1240
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Archive Old Conversations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Deactivate Stale Patterns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Archive Completed Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clean Expired Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Old Conversations": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deactivate Stale Patterns": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Completed Tasks": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Expired Context": {
+      "main": [
+        [
+          {
+            "node": "Get Database Statistics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Database Statistics": {
+      "main": [
+        [
+          {
+            "node": "Summarize Consolidation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "automation",
+    "maintenance"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

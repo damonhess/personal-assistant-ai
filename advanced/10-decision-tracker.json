@@ -1,0 +1,311 @@
+{
+  "name": "Advanced - Decision Tracker",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-log",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "log_decision",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "log_decision"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-review",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "review_decisions",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "review_decisions"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-update",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "update_decision",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "update_decision"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "op-analyze",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "analyze_patterns",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "analyze_patterns"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-operation",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        580,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare decision for logging with embedding\nconst inputData = $('Execute Workflow Trigger').item.json;\nconst apiKey = $credentials.openAiApi.apiKey;\n\n// Generate embedding from title + decision + rationale\nconst textToEmbed = [\n  inputData.title || '',\n  inputData.decision || '',\n  inputData.rationale || '',\n  inputData.description || ''\n].join(' ');\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: textToEmbed,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    title: inputData.title,\n    description: inputData.description || '',\n    decision: inputData.decision,\n    rationale: inputData.rationale || '',\n    category: inputData.category || 'general',\n    tags: inputData.tags || [],\n    context: inputData.context || {},\n    conversation_id: inputData.conversation_id || null,\n    related_task_id: inputData.related_task_id || null,\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "prepare-decision",
+      "name": "Prepare Decision Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        460
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO decisions (title, description, decision, rationale, category, tags, embedding, context, conversation_id, related_task_id)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.description }}',\n  '{{ $json.decision }}',\n  '{{ $json.rationale }}',\n  '{{ $json.category }}',\n  {{ $json.tags && $json.tags.length > 0 ? \"ARRAY['\" + $json.tags.join(\"','\") + \"']\" : \"'{}'\" }},\n  '{{ $json.embedding }}',\n  '{{ JSON.stringify($json.context) }}'::jsonb,\n  {{ $json.conversation_id ? \"'\" + $json.conversation_id + \"'::uuid\" : 'NULL' }},\n  {{ $json.related_task_id ? \"'\" + $json.related_task_id + \"'::uuid\" : 'NULL' }}\n)\nRETURNING id, title, decision, category, made_at;"
+      },
+      "id": "log-decision",
+      "name": "Log Decision to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=-- Review recent decisions with optional filters\nSELECT \n  d.id,\n  d.title,\n  d.decision,\n  d.rationale,\n  d.category,\n  d.status,\n  d.made_at,\n  d.tags,\n  EXTRACT(EPOCH FROM (NOW() - d.made_at)) / 86400 as days_ago,\n  t.title as related_task_title,\n  t.status as task_status\nFROM decisions d\nLEFT JOIN tasks t ON d.related_task_id = t.id\nWHERE \n  {{ $('Execute Workflow Trigger').item.json.category ? \"d.category = '\" + $('Execute Workflow Trigger').item.json.category + \"' AND\" : \"\" }}\n  {{ $('Execute Workflow Trigger').item.json.status ? \"d.status = '\" + $('Execute Workflow Trigger').item.json.status + \"' AND\" : \"\" }}\n  {{ $('Execute Workflow Trigger').item.json.days_back ? \"d.made_at >= NOW() - INTERVAL '\" + $('Execute Workflow Trigger').item.json.days_back + \" days' AND\" : \"\" }}\n  1=1\nORDER BY d.made_at DESC\nLIMIT {{ $('Execute Workflow Trigger').item.json.limit || 20 }};"
+      },
+      "id": "review-decisions",
+      "name": "Review Decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE decisions\nSET \n  status = '{{ $('Execute Workflow Trigger').item.json.new_status }}',\n  {{ $('Execute Workflow Trigger').item.json.new_rationale ? \"rationale = '\" + $('Execute Workflow Trigger').item.json.new_rationale + \"',\" : \"\" }}\n  context = context || '{{ JSON.stringify($('Execute Workflow Trigger').item.json.update_context || {}) }}'::jsonb\nWHERE id = '{{ $('Execute Workflow Trigger').item.json.decision_id }}'\nRETURNING id, title, decision, status, made_at;"
+      },
+      "id": "update-decision",
+      "name": "Update Decision Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Analyze decision-making patterns\nWITH decision_stats AS (\n  SELECT \n    category,\n    status,\n    COUNT(*) as decision_count,\n    AVG(EXTRACT(EPOCH FROM (NOW() - made_at)) / 86400) as avg_age_days,\n    COUNT(CASE WHEN status = 'reversed' THEN 1 END) as reversed_count,\n    COUNT(CASE WHEN status = 'revisited' THEN 1 END) as revisited_count,\n    ROUND(\n      COUNT(CASE WHEN status = 'reversed' THEN 1 END)::numeric / \n      NULLIF(COUNT(*), 0) * 100, \n      2\n    ) as reversal_rate\n  FROM decisions\n  WHERE made_at >= NOW() - INTERVAL '90 days'\n  GROUP BY category, status\n),\ncategory_trends AS (\n  SELECT \n    category,\n    COUNT(*) as total_decisions,\n    json_agg(\n      json_build_object(\n        'status', status,\n        'count', decision_count,\n        'avg_age_days', ROUND(avg_age_days, 2),\n        'reversal_rate', reversal_rate\n      )\n    ) as status_breakdown\n  FROM decision_stats\n  GROUP BY category\n)\nSELECT * FROM category_trends\nORDER BY total_decisions DESC;"
+      },
+      "id": "analyze-patterns",
+      "name": "Analyze Decision Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\udcdd Decision Tracker\n\n**Purpose**: Log, review, and analyze important decisions\n\n**Operations**:\n- **log_decision**: Record new decision with embedding\n  - Required: title, decision, rationale\n  - Optional: category, tags, context, related_task_id\n\n- **review_decisions**: Query past decisions\n  - Filters: category, status, days_back, limit\n  - Includes related task info\n\n- **update_decision**: Change decision status\n  - Statuses: active, revisited, reversed, archived\n  - Add update context/rationale\n\n- **analyze_patterns**: Decision-making analytics\n  - By category and status\n  - Reversal rates\n  - Age trends\n\n**Integration**:\n- AI Agent can call via tool\n- Automatic embedding generation\n- Links to tasks and conversations",
+        "height": 960,
+        "width": 620,
+        "color": 1
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        140
+      ],
+      "width": 520,
+      "height": 1240
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Route by Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Operation": {
+      "main": [
+        [
+          {
+            "node": "Prepare Decision Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Decision Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze Decision Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Decision Data": {
+      "main": [
+        [
+          {
+            "node": "Log Decision to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "tool",
+    "decisions"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

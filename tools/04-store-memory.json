@@ -1,0 +1,322 @@
+{
+  "id": "ce6EupmotKT949J9",
+  "name": "04 - Store Memory",
+  "nodes": [
+    {
+      "id": "536938b8-84fa-4f8e-ab99-7a88e6369432",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        80,
+        272
+      ],
+      "parameters": {},
+      "typeVersion": 1
+    },
+    {
+      "id": "9b23cdf9-80ad-4f49-8bdb-1eab5c77fe61",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "position": [
+        400,
+        256
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "conversation",
+              "conditions": {
+                "options": {
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "conversation"
+                  }
+                ]
+              },
+              "renameOutput": true
+            },
+            {
+              "outputKey": "task",
+              "conditions": {
+                "options": {
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "task"
+                  }
+                ]
+              },
+              "renameOutput": true
+            },
+            {
+              "outputKey": "decision",
+              "conditions": {
+                "options": {
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "decision"
+                  }
+                ]
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 3
+    },
+    {
+      "id": "4676e87f-54c3-419e-be6b-ffa8bba65a8c",
+      "name": "Prepare Conversation",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        624,
+        80
+      ],
+      "parameters": {
+        "jsCode": "// Prepare conversation data (embeddings disabled for now)\nconst inputData = $('Normalize Input').item.json;\n\nreturn {\n  json: {\n    session_id: inputData.session_id || 'auto-' + Date.now(),\n    message: inputData.message || inputData.content,\n    role: inputData.role || 'user',\n    metadata: inputData.metadata || {},\n    embedding: null  // Will be added via proper n8n node later\n  }\n};"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "0a598aea-cab8-42af-9d35-ae47e8a03512",
+      "name": "Prepare Task",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        624,
+        272
+      ],
+      "parameters": {
+        "jsCode": "// Prepare task data (embeddings disabled for now)\nconst inputData = $('Normalize Input').item.json;\n\nreturn {\n  json: {\n    title: inputData.title || 'Untitled Task',\n    description: inputData.description || '',\n    status: inputData.status || 'pending',\n    priority: inputData.priority || 'medium',\n    deadline: inputData.deadline || null,\n    tags: inputData.tags || [],\n    metadata: inputData.metadata || {},\n    embedding: null\n  }\n};"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "0e6de0d9-4001-47e3-a576-12d36b7be488",
+      "name": "Prepare Decision",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        624,
+        464
+      ],
+      "parameters": {
+        "jsCode": "// Prepare decision data (embeddings disabled for now)\nconst inputData = $('Normalize Input').item.json;\n\nreturn {\n  json: {\n    title: inputData.title || 'Untitled Decision',\n    description: inputData.description || '',\n    decision: inputData.decision || '',\n    rationale: inputData.rationale || '',\n    category: inputData.category || 'general',\n    tags: inputData.tags || [],\n    embedding: null\n  }\n};"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "dfe9a950-82d1-4dab-82ac-c141af9f9a69",
+      "name": "Store Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        848,
+        80
+      ],
+      "parameters": {
+        "query": "=INSERT INTO aria_unified_memory (memory_type, content, confidence)\nVALUES (\n  'conversation',\n  '{{ $json.message }}',\n  1.0\n)\nRETURNING id, created_at;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      },
+      "typeVersion": 2.4
+    },
+    {
+      "id": "f06904a8-62e3-46c2-af34-b1ff34860502",
+      "name": "Store Task",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        848,
+        272
+      ],
+      "parameters": {
+        "query": "=INSERT INTO aria_unified_memory (memory_type, content, confidence)\nVALUES (\n  'task',\n  '{{ $json.title }}: {{ $json.description }}',\n  1.0\n)\nRETURNING id, created_at;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      },
+      "typeVersion": 2.4
+    },
+    {
+      "id": "98310ebf-29aa-447f-830a-35356a65a8a6",
+      "name": "Store Decision",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        848,
+        464
+      ],
+      "parameters": {
+        "query": "=INSERT INTO aria_unified_memory (memory_type, content, confidence)\nVALUES (\n  'decision',\n  '{{ $json.title }}: {{ $json.decision }} (Rationale: {{ $json.rationale }})',\n  1.0\n)\nRETURNING id, created_at;",
+        "options": {},
+        "operation": "executeQuery"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      },
+      "typeVersion": 2.4
+    },
+    {
+      "id": "ad6bcd58-f79d-496a-91ea-784d83622ac1",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        32,
+        -240
+      ],
+      "parameters": {
+        "color": 4,
+        "width": 920,
+        "height": 872,
+        "content": "## 💾 Tool: Store Memory\n\n**Purpose**: Save important information to long-term memory with semantic embeddings\n\n**Input Types**:\n- conversation: General snippets (requires: content, session_id, role, message)\n- task: Action items (requires: title, description, priority, deadline)\n- decision: Important choices (requires: title, decision, rationale, category)\n\n**Output**: Returns ID and timestamp of stored item\n\n**Tool Description for AI**:\nSave important information to long-term memory with semantic embeddings. Supports: conversation (general snippets), task (action items), decision (important choices with rationale). Returns the ID of the stored item."
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "0364805f-8da9-4e94-8bef-f0c46e9ea0f8",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        192,
+        272
+      ],
+      "parameters": {
+        "jsCode": "// Unwrap ai-agent-main's {query: {...}} wrapper\nif ($json.query && typeof $json.query === 'object') {\n  return [{ json: $json.query }];\n}\n\n// Pass through if already properly structured\nreturn [$input.item];"
+      },
+      "typeVersion": 2
+    }
+  ],
+  "connections": {
+    "Prepare Task": {
+      "main": [
+        [
+          {
+            "node": "Store Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Route by Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Decision": {
+      "main": [
+        [
+          {
+            "node": "Store Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Conversation": {
+      "main": [
+        [
+          {
+            "node": "Store Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

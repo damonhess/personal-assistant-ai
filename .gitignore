@@ -1,0 +1,15 @@
+# Ignore backup files
+*.backup
+*.bak
+~*
+
+# Ignore test files
+test-*.json
+*.test.json
+
+# Ignore logs
+*.log
+
+# Ignore environment files (credentials should be in n8n)
+.env
+*.env

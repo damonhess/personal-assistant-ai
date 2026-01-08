@@ -1,0 +1,201 @@
+{
+  "name": "Tool - Search Memory",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate embedding for the query\nconst query = $input.item.json.query;\nconst apiKey = $credentials.openAiApi.apiKey;\nconst threshold = $input.item.json.threshold || 0.7;\nconst limit = $input.item.json.limit || 10;\nconst types = $input.item.json.types || ['conversations', 'tasks', 'decisions'];\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: query,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    query: query,\n    embedding: '[' + embeddingArray.join(',') + ']',\n    threshold: threshold,\n    limit: limit,\n    types: types\n  }\n};"
+      },
+      "id": "generate-embedding",
+      "name": "Generate Query Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        420
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_similar_conversations(\n  '{{ $json.embedding }}',\n  {{ $json.threshold }},\n  {{ $json.limit }}\n);"
+      },
+      "id": "search-conversations",
+      "name": "Search Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        280,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_similar_tasks(\n  '{{ $('Generate Query Embedding').item.json.embedding }}',\n  {{ $('Generate Query Embedding').item.json.threshold }},\n  {{ $('Generate Query Embedding').item.json.limit }}\n);"
+      },
+      "id": "search-tasks",
+      "name": "Search Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_similar_decisions(\n  '{{ $('Generate Query Embedding').item.json.embedding }}',\n  {{ $('Generate Query Embedding').item.json.threshold }},\n  {{ $('Generate Query Embedding').item.json.limit }}\n);"
+      },
+      "id": "search-decisions",
+      "name": "Search Decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        400,
+        860
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate memory search results\nconst allItems = $input.all();\nconst requestedTypes = $('Generate Query Embedding').item.json.types;\n\n// Separate by type based on fields present\nconst conversations = [];\nconst tasks = [];\nconst decisions = [];\n\nallItems.forEach(item => {\n  const data = item.json;\n  \n  // Check what type of data this is\n  if (data.similarity !== undefined && data.role !== undefined) {\n    // Conversation\n    if (requestedTypes.includes('conversations')) {\n      conversations.push(data);\n    }\n  } else if (data.similarity !== undefined && data.status !== undefined) {\n    // Task\n    if (requestedTypes.includes('tasks')) {\n      tasks.push(data);\n    }\n  } else if (data.decision !== undefined) {\n    // Decision\n    if (requestedTypes.includes('decisions')) {\n      decisions.push(data);\n    }\n  }\n});\n\nreturn {\n  json: {\n    query: $('Generate Query Embedding').item.json.query,\n    conversations: conversations,\n    tasks: tasks,\n    decisions: decisions,\n    summary: {\n      conversations_count: conversations.length,\n      tasks_count: tasks.length,\n      decisions_count: decisions.length,\n      total_results: conversations.length + tasks.length + decisions.length\n    }\n  }\n};"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1080
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\udd0d Tool: Search Memory\n\n**Purpose**: Semantic search across conversations, tasks, and decisions\n\n**Input**:\n- query (string): Search text\n- types (array, optional): ['conversations', 'tasks', 'decisions'] - default all\n- threshold (number, optional): 0.0-1.0 similarity threshold - default 0.7\n- limit (number, optional): Max results per type - default 10\n\n**Output**: Ranked results with similarity scores\n\n**Tool Description for AI**:\nSearch past conversations, tasks, and decisions using semantic similarity. Returns ranked results with similarity scores. Use when user asks about past interactions, decisions, or similar tasks.",
+        "height": 1120,
+        "width": 600,
+        "color": 4
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        120
+      ],
+      "width": 520,
+      "height": 1100
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "Search Conversations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Conversations": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Tasks": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Decisions": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": ""
+}

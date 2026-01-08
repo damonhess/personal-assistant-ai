@@ -1,0 +1,1131 @@
+{
+  "id": "6LTK56yhCWi1H34X",
+  "name": "02 - Manage Tasks",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "normalize-op",
+              "name": "operation",
+              "value": "={{ $json.query?.operation || $json.operation }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-title",
+              "name": "title",
+              "value": "={{ $json.query?.title || $json.title || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-desc",
+              "name": "description",
+              "value": "={{ $json.query?.description || $json.description || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-taskid",
+              "name": "task_id",
+              "value": "={{ $json.query?.task_id || $json.task_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-status",
+              "name": "status",
+              "value": "={{ $json.query?.status || $json.status || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-priority",
+              "name": "priority",
+              "value": "={{ $json.query?.priority || $json.priority || 'medium' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-deadline",
+              "name": "deadline",
+              "value": "={{ $json.query?.deadline || $json.deadline || null }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-new-title",
+              "name": "new_title",
+              "value": "={{ $json.query?.new_title || $json.new_title || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "normalize-new-desc",
+              "name": "new_description",
+              "value": "={{ $json.query?.new_description || $json.new_description || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "normalize-input",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        500,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-create",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-list",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "list_active",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "list_active"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-update-status",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "update_status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "update_status"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-complete",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "complete"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-delete",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-update",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "update"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "op-reschedule",
+                    "leftValue": "={{ $json.operation }}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reschedule"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-operation",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        700,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ input: ($json.title || '') + ' ' + ($json.description || ''), model: 'text-embedding-3-small' }) }}",
+        "options": {}
+      },
+      "id": "create-task-embedding",
+      "name": "Generate Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        -100
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "5DFuvUPLavfaWChn",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format task data with embedding from HTTP response\nconst inputData = $('Normalize Input').item.json;\nconst embeddingResponse = $input.item.json;\nconst embeddingArray = embeddingResponse.data[0].embedding;\n\nreturn {\n  json: {\n    title: inputData.title,\n    description: inputData.description || '',\n    status: inputData.status || 'pending',\n    priority: inputData.priority || 'medium',\n    deadline: inputData.deadline || null,\n    tags: inputData.tags || [],\n    metadata: inputData.metadata || {},\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "create-task-prepare",
+      "name": "Create Task - Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO tasks (title, description, status, priority, deadline, embedding, tags, metadata)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.description }}',\n  '{{ $json.status }}',\n  '{{ $json.priority }}',\n  {{ $json.deadline ? \"'\" + $json.deadline + \"'::timestamptz\" : 'NULL' }},\n  '{{ $json.embedding }}',\n  {{ $json.tags && $json.tags.length > 0 ? \"ARRAY['\" + $json.tags.join(\"','\") + \"']\" : \"'{}'\" }},\n  '{{ JSON.stringify($json.metadata) }}'::jsonb\n)\nRETURNING id, title, description, status, priority, deadline, created_at;"
+      },
+      "id": "create-task-insert",
+      "name": "Create Task - Insert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1320,
+        -100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, notes: $json.description || '', due: $json.deadline ? new Date($json.deadline).toISOString() : undefined }) }}",
+        "options": {}
+      },
+      "id": "create-google-task",
+      "name": "Create Google Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        -100
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credential",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks SET google_task_id = '{{ $json.id }}' WHERE id = '{{ $('Create Task - Insert').item.json.id }}' RETURNING id, title, description, status, priority, deadline, created_at, google_task_id;"
+      },
+      "id": "update-google-task-id",
+      "name": "Store Google Task ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1720,
+        -100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, title, description, status, priority, deadline, created_at, updated_at, tags, google_task_id\nFROM tasks\nWHERE status IN ('pending', 'in_progress')\nORDER BY \n  CASE priority\n    WHEN 'urgent' THEN 1\n    WHEN 'high' THEN 2\n    WHEN 'medium' THEN 3\n    WHEN 'low' THEN 4\n  END,\n  deadline NULLS LAST\nLIMIT 50;"
+      },
+      "id": "list-active-tasks",
+      "name": "List Active Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks\nSET status = '{{ $json.status }}',\n    updated_at = NOW()\nWHERE id = '{{ $json.task_id }}'\nRETURNING id, title, status, updated_at, google_task_id;"
+      },
+      "id": "update-task-status",
+      "name": "Update Task Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        260
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, title, google_task_id FROM tasks WHERE id = '{{ $json.task_id }}';"
+      },
+      "id": "get-task-for-complete",
+      "name": "Get Task for Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks\nSET status = 'completed',\n    completed_at = NOW(),\n    updated_at = NOW()\nWHERE id = '{{ $json.id }}'\nRETURNING id, title, status, completed_at, google_task_id;"
+      },
+      "id": "complete-task",
+      "name": "Complete Task",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-google-task-complete",
+              "leftValue": "={{ $json.google_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-google-task-complete",
+      "name": "Has Google Task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/{{ $json.google_task_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'completed' }) }}",
+        "options": {}
+      },
+      "id": "complete-google-task",
+      "name": "Complete Google Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        420
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credential",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, title, google_task_id FROM tasks WHERE id = '{{ $json.task_id }}';"
+      },
+      "id": "get-task-for-delete",
+      "name": "Get Task for Delete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks\nSET status = 'cancelled',\n    updated_at = NOW()\nWHERE id = '{{ $json.id }}'\nRETURNING id, title, status, google_task_id;"
+      },
+      "id": "delete-task",
+      "name": "Delete Task (Soft)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1120,
+        620
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-google-task-delete",
+              "leftValue": "={{ $json.google_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-google-task-delete",
+      "name": "Has Google Task Delete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/{{ $json.google_task_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "options": {}
+      },
+      "id": "delete-google-task",
+      "name": "Delete Google Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        600
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credential",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, title, description, google_task_id FROM tasks WHERE id = '{{ $json.task_id }}';"
+      },
+      "id": "get-task-for-update",
+      "name": "Get Task for Update",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare update data - use new values if provided, otherwise keep existing\nconst inputData = $('Normalize Input').item.json;\nconst currentTask = $input.item.json;\n\nconst newTitle = inputData.new_title || currentTask.title;\nconst newDescription = inputData.new_description !== '' ? inputData.new_description : currentTask.description;\n\nreturn {\n  json: {\n    id: currentTask.id,\n    title: newTitle,\n    description: newDescription,\n    google_task_id: currentTask.google_task_id\n  }\n};"
+      },
+      "id": "prepare-update-data",
+      "name": "Prepare Update Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks\nSET title = '{{ $json.title }}',\n    description = '{{ $json.description }}',\n    updated_at = NOW()\nWHERE id = '{{ $json.id }}'\nRETURNING id, title, description, status, google_task_id;"
+      },
+      "id": "update-task-supabase",
+      "name": "Update Task in Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1320,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-google-task-update",
+              "leftValue": "={{ $json.google_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-google-task-update",
+      "name": "Has Google Task Update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/{{ $json.google_task_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, notes: $json.description || '' }) }}",
+        "options": {}
+      },
+      "id": "update-google-task",
+      "name": "Update Google Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        780
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credential",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, title, deadline, google_task_id FROM tasks WHERE id = '{{ $json.task_id }}';"
+      },
+      "id": "get-task-for-reschedule",
+      "name": "Get Task for Reschedule",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        980
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare reschedule data\nconst inputData = $('Normalize Input').item.json;\nconst currentTask = $input.item.json;\n\nreturn {\n  json: {\n    id: currentTask.id,\n    title: currentTask.title,\n    deadline: inputData.deadline,\n    google_task_id: currentTask.google_task_id\n  }\n};"
+      },
+      "id": "prepare-reschedule-data",
+      "name": "Prepare Reschedule Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        980
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE tasks\nSET deadline = {{ $json.deadline ? \"'\" + $json.deadline + \"'::timestamptz\" : 'NULL' }},\n    updated_at = NOW()\nWHERE id = '{{ $json.id }}'\nRETURNING id, title, deadline, status, google_task_id;"
+      },
+      "id": "reschedule-task-supabase",
+      "name": "Reschedule in Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1320,
+        980
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "aVP8htYcA8y2UOih",
+          "name": "Supabase Postgres server"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-google-task-reschedule",
+              "leftValue": "={{ $json.google_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-google-task-reschedule",
+      "name": "Has Google Task Reschedule?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        980
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://tasks.googleapis.com/tasks/v1/lists/@default/tasks/{{ $json.google_task_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ due: $json.deadline ? new Date($json.deadline).toISOString() : null }) }}",
+        "options": {}
+      },
+      "id": "reschedule-google-task",
+      "name": "Reschedule Google Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        960
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credential",
+          "name": "Google Calendar"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Task Management with Google Tasks Sync\n\n**Operations**:\n- **create**: New task + Google Tasks\n- **list_active**: Get pending/in_progress tasks\n- **update_status**: Change task status\n- **update**: Edit title/description + sync\n- **reschedule**: Change due date + sync\n- **complete**: Mark done in both systems\n- **delete**: Remove from both systems\n\n**Google Tasks Integration**:\n- Syncs to @default task list\n- google_task_id stored for sync\n- Uses Google Calendar OAuth\n\n**Input Schema**:\n```json\n{\n  \"operation\": \"create|list_active|update_status|update|reschedule|complete|delete\",\n  \"task_id\": \"uuid (for existing tasks)\",\n  \"title\": \"task title\",\n  \"description\": \"task notes\",\n  \"new_title\": \"for update op\",\n  \"new_description\": \"for update op\",\n  \"deadline\": \"ISO date string\",\n  \"priority\": \"low|medium|high|urgent\",\n  \"status\": \"pending|in_progress|completed\"\n}\n```",
+        "height": 560,
+        "width": 380,
+        "color": 3
+      },
+      "id": "sticky-note",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        300,
+        -140
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Route by Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Operation": {
+      "main": [
+        [
+          {
+            "node": "Generate Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List Active Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Task Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Task for Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Task for Delete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Task for Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Task for Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Embedding": {
+      "main": [
+        [
+          {
+            "node": "Create Task - Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Task - Prepare": {
+      "main": [
+        [
+          {
+            "node": "Create Task - Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Task - Insert": {
+      "main": [
+        [
+          {
+            "node": "Create Google Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Task": {
+      "main": [
+        [
+          {
+            "node": "Store Google Task ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Task for Complete": {
+      "main": [
+        [
+          {
+            "node": "Complete Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Task": {
+      "main": [
+        [
+          {
+            "node": "Has Google Task?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Google Task?": {
+      "main": [
+        [
+          {
+            "node": "Complete Google Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Task for Delete": {
+      "main": [
+        [
+          {
+            "node": "Delete Task (Soft)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Task (Soft)": {
+      "main": [
+        [
+          {
+            "node": "Has Google Task Delete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Google Task Delete?": {
+      "main": [
+        [
+          {
+            "node": "Delete Google Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Task for Update": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update Data": {
+      "main": [
+        [
+          {
+            "node": "Update Task in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Task in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Has Google Task Update?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Google Task Update?": {
+      "main": [
+        [
+          {
+            "node": "Update Google Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Task for Reschedule": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reschedule Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reschedule Data": {
+      "main": [
+        [
+          {
+            "node": "Reschedule in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reschedule in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Has Google Task Reschedule?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Google Task Reschedule?": {
+      "main": [
+        [
+          {
+            "node": "Reschedule Google Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": ""
+}

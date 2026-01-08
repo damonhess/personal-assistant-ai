@@ -1,0 +1,237 @@
+{
+  "name": "Tool - Search Memory (ARIA)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate embedding for the query\nconst query = $input.item.json.query;\nconst apiKey = $credentials.openAiApi.apiKey;\nconst threshold = $input.item.json.threshold || 0.7;\nconst limit = $input.item.json.limit || 10;\nconst types = $input.item.json.types || ['messages', 'tasks', 'decisions', 'memory'];\nconst interfaceSource = $input.item.json.interface_source || null; // Filter by source\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: query,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    query: query,\n    embedding: '[' + embeddingArray.join(',') + ']',\n    threshold: threshold,\n    limit: limit,\n    types: types,\n    interface_source: interfaceSource\n  }\n};"
+      },
+      "id": "generate-embedding",
+      "name": "Generate Query Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        420
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_aria_messages(\n  '{{ $json.embedding }}',\n  {{ $json.threshold }},\n  {{ $json.limit }},\n  {{ $json.interface_source ? \"'\" + $json.interface_source + \"'\" : 'NULL' }}\n);"
+      },
+      "id": "search-messages",
+      "name": "Search ARIA Messages",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        280,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_similar_tasks(\n  '{{ $('Generate Query Embedding').item.json.embedding }}',\n  {{ $('Generate Query Embedding').item.json.threshold }},\n  {{ $('Generate Query Embedding').item.json.limit }}\n);"
+      },
+      "id": "search-tasks",
+      "name": "Search Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM search_similar_decisions(\n  '{{ $('Generate Query Embedding').item.json.embedding }}',\n  {{ $('Generate Query Embedding').item.json.threshold }},\n  {{ $('Generate Query Embedding').item.json.limit }}\n);"
+      },
+      "id": "search-decisions",
+      "name": "Search Decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        280,
+        860
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=-- Search ARIA unified memory\nSELECT\n  id,\n  memory_type,\n  content,\n  source_conversation_id,\n  confidence,\n  created_at,\n  1 - (embedding <=> '{{ $('Generate Query Embedding').item.json.embedding }}') as similarity\nFROM aria_unified_memory\nWHERE embedding IS NOT NULL\n  AND is_active = true\n  AND 1 - (embedding <=> '{{ $('Generate Query Embedding').item.json.embedding }}') > {{ $('Generate Query Embedding').item.json.threshold }}\nORDER BY embedding <=> '{{ $('Generate Query Embedding').item.json.embedding }}'\nLIMIT {{ $('Generate Query Embedding').item.json.limit }};"
+      },
+      "id": "search-memory",
+      "name": "Search Unified Memory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        860
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate memory search results\nconst allItems = $input.all();\nconst requestedTypes = $('Generate Query Embedding').item.json.types;\n\n// Separate by type based on fields present\nconst messages = [];\nconst tasks = [];\nconst decisions = [];\nconst memory = [];\n\nallItems.forEach(item => {\n  const data = item.json;\n  \n  // Check what type of data this is based on unique fields\n  if (data.conversation_id && data.role) {\n    // ARIA Message\n    if (requestedTypes.includes('messages') || requestedTypes.includes('conversations')) {\n      messages.push(data);\n    }\n  } else if (data.status && data.priority) {\n    // Task\n    if (requestedTypes.includes('tasks')) {\n      tasks.push(data);\n    }\n  } else if (data.decision && data.rationale !== undefined) {\n    // Decision\n    if (requestedTypes.includes('decisions')) {\n      decisions.push(data);\n    }\n  } else if (data.memory_type) {\n    // Unified Memory\n    if (requestedTypes.includes('memory')) {\n      memory.push(data);\n    }\n  }\n});\n\nreturn {\n  json: {\n    query: $('Generate Query Embedding').item.json.query,\n    messages: messages,\n    tasks: tasks,\n    decisions: decisions,\n    unified_memory: memory,\n    summary: {\n      messages_count: messages.length,\n      tasks_count: tasks.length,\n      decisions_count: decisions.length,\n      memory_count: memory.length,\n      total_results: messages.length + tasks.length + decisions.length + memory.length\n    }\n  }\n};"
+      },
+      "id": "aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1080
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Search Memory (ARIA Edition)\n\n**Purpose**: Semantic search across unified ARIA schema\n\n**Input**:\n- query (string): Search text\n- types (array): ['messages', 'tasks', 'decisions', 'memory']\n- threshold (number): 0.0-1.0 similarity threshold\n- limit (number): Max results per type\n- interface_source (string, optional): Filter by 'cli', 'web', 'telegram'\n\n**Output**: Ranked results with similarity scores\n\n**New Features**:\n- Searches aria_unified_memory\n- Can filter by interface_source\n- Returns messages instead of raw conversations",
+        "height": 1120,
+        "width": 600,
+        "color": 4
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        120
+      ],
+      "width": 520,
+      "height": 1100
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "Search ARIA Messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Decisions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Unified Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search ARIA Messages": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Tasks": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Decisions": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Unified Memory": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["aria", "tools"],
+  "triggerCount": 0,
+  "versionId": ""
+}

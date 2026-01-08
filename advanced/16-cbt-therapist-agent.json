@@ -1,0 +1,365 @@
+{
+  "name": "Advanced - CBT Therapist Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        420,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "user-message",
+              "name": "user_message",
+              "value": "={{ $json.user_message || $json.message || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "conversation-id",
+              "name": "conversation_id",
+              "value": "={{ $json.conversation_id || null }}",
+              "type": "string"
+            },
+            {
+              "id": "session-id",
+              "name": "session_id",
+              "value": "={{ $json.session_id || 'cbt-session' }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "extract-input",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        420,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT\n  distortion_category,\n  COUNT(*) as count,\n  AVG(CASE severity WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END) as avg_severity\nFROM mental_health_patterns\nWHERE created_at > NOW() - INTERVAL '30 days'\n  AND pattern_type = 'distortion'\nGROUP BY distortion_category\nORDER BY count DESC\nLIMIT 5",
+        "options": {}
+      },
+      "id": "get-recent-patterns",
+      "name": "Get Recent Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        660
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, original_thought, reframe, accepted, created_at\nFROM mental_health_patterns\nWHERE pattern_type = 'win'\n  AND created_at > NOW() - INTERVAL '7 days'\nORDER BY created_at DESC\nLIMIT 10",
+        "options": {}
+      },
+      "id": "get-recent-wins",
+      "name": "Get Recent Wins",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        660
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const userMessage = $input.item.json.user_message;\nconst recentPatterns = $('Get Recent Patterns').all();\nconst recentWins = $('Get Recent Wins').all();\n\n// Build context for CBT agent\nconst patternSummary = recentPatterns.length > 0 \n  ? recentPatterns.map(p => \n      `${p.json.distortion_category}: ${p.json.count} times (avg severity: ${p.json.avg_severity.toFixed(1)})`\n    ).join(', ')\n  : 'No recent patterns detected';\n\nconst winsList = recentWins.length > 0\n  ? recentWins.map(w => \n      `- ${w.json.original_thought} (${w.json.created_at.split('T')[0]})`\n    ).join('\\n')\n  : 'No recent wins recorded';\n\n// Cognitive distortion detection patterns\nconst distortionPatterns = {\n  catastrophizing: /disaster|terrible|horrible|worst|catastrophe|ruin|doomed/i,\n  all_or_nothing: /never|always|every time|no one|everyone|impossible|can't/i,\n  mind_reading: /they think|they'll think|people will|everyone will think/i,\n  fortune_telling: /will fail|will never|going to be|destined to/i,\n  discounting_positives: /doesn't count|not good enough|just|only|mere|luck/i,\n  should_statements: /should have|shouldn't|must|ought to|have to/i,\n  imposter_syndrome: /fraud|fake|don't deserve|not qualified|fooling/i,\n  rejection_sensitivity: /hate me|reject|abandon|disappointed|let.*down/i,\n  avoidance: /not ready|need to learn|first I need|when I|after I/i\n};\n\n// Detect distortions\nconst detected = [];\nfor (const [category, pattern] of Object.entries(distortionPatterns)) {\n  if (pattern.test(userMessage)) {\n    detected.push(category);\n  }\n}\n\nreturn [{\n  json: {\n    user_message: userMessage,\n    conversation_id: $input.item.json.conversation_id,\n    session_id: $input.item.json.session_id,\n    detected_distortions: detected,\n    pattern_summary: patternSummary,\n    recent_wins: winsList,\n    has_distortions: detected.length > 0\n  }\n}];"
+      },
+      "id": "analyze-message",
+      "name": "Analyze Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.user_message }}",
+        "options": {
+          "systemMessage": "=You are a CBT therapist specializing in ADHD and entrepreneurship. You use DSM-IV diagnostic framework and focus on practical cognitive restructuring.\n\n## Your Role\n- Identify cognitive distortions directly and explicitly\n- Offer reframes as suggestions, not commands\n- Validate emotions while challenging thoughts\n- Remind the user of evidence (past wins, completed work)\n- Be direct but warm\n\n## Detected Distortions (Auto-Analysis)\n{{ $('Analyze Message').item.json.detected_distortions.length > 0 ? $('Analyze Message').item.json.detected_distortions.join(', ') : 'None automatically detected - use clinical judgment' }}\n\n## User's Pattern History (30 days)\n{{ $('Analyze Message').item.json.pattern_summary }}\n\n## Recent Wins (7 days)\n{{ $('Analyze Message').item.json.recent_wins }}\n\n## Communication Style\n- Name the distortion explicitly (\"That sounds like catastrophizing\")\n- Ask: \"Is that true, or is that your brain lying to you?\"\n- Offer reframe: \"What if instead...\"\n- Pull evidence from recent wins\n- Notice avoidance behaviors and name them\n\n## ADHD-Specific Patterns to Watch\n- Task paralysis (\"I need to learn X first\")\n- Rejection sensitivity (\"They'll think I'm a fraud\")\n- Time blindness (unrealistic deadline anxiety)\n- All-or-nothing thinking\n- Imposter syndrome\n\n## Response Structure\n1. Name the distortion(s) you see\n2. Ask if the thought is actually true\n3. Offer a reframe\n4. Pull relevant evidence from their wins\n5. Suggest a small next action if appropriate\n\nBe compassionate but direct. Challenge the thought, not the person.",
+          "maxIterations": 3
+        }
+      },
+      "id": "cbt-agent",
+      "name": "CBT AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        420,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 800
+        }
+      },
+      "id": "cbt-openai-model",
+      "name": "OpenAI Chat Model (CBT)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        600,
+        1100
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cbtOutput = $input.item.json.output;\nconst analyzedData = $('Analyze Message').item.json;\n\n// Generate embedding for storage\nconst OpenAI = require('openai').default;\nconst openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });\n\nconst embeddingResponse = await openai.embeddings.create({\n  model: 'text-embedding-3-small',\n  input: analyzedData.user_message,\n});\n\nconst embedding = embeddingResponse.data[0].embedding;\n\nreturn [{\n  json: {\n    response: cbtOutput,\n    user_message: analyzedData.user_message,\n    detected_distortions: analyzedData.detected_distortions,\n    conversation_id: analyzedData.conversation_id,\n    session_id: analyzedData.session_id,\n    embedding: JSON.stringify(embedding)\n  }\n}];"
+      },
+      "id": "prepare-storage",
+      "name": "Prepare Storage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        1320
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "mental_health_patterns", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "pattern_type": "distortion",
+            "original_thought": "={{ $json.user_message }}",
+            "reframe": "={{ $json.response }}",
+            "distortion_category": "={{ $json.detected_distortions[0] || null }}",
+            "context": "=CBT session via LangChain agent",
+            "conversation_id": "={{ $json.conversation_id }}",
+            "embedding": "={{ $json.embedding }}",
+            "severity": "medium"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "store-pattern",
+      "name": "Store Pattern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        1540
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "response",
+              "name": "response",
+              "value": "={{ $('Prepare Storage').item.json.response }}",
+              "type": "string"
+            },
+            {
+              "id": "distortions",
+              "name": "detected_distortions",
+              "value": "={{ $('Prepare Storage').item.json.detected_distortions }}",
+              "type": "array"
+            },
+            {
+              "id": "stored-id",
+              "name": "pattern_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        420,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🧠 CBT Therapist Agent (LangChain)\n\n**Architecture**: Nested AI Agent\n- Main Agent calls this as a tool\n- This workflow uses LangChain AI Agent internally\n- Most sophisticated: Agent within Agent\n\n**Framework**: Cognitive Behavioral Therapy (DSM-IV)\n**Focus**: ADHD + Entrepreneurship\n**Model**: GPT-4o-mini (temperature: 0.7, max 800 tokens)\n\n**Process**:\n1. Auto-detect distortions (pattern matching)\n2. Retrieve user's pattern history (30 days)\n3. Pull recent wins as evidence (7 days)\n4. LangChain AI Agent with CBT framework\n5. Store pattern with embeddings for tracking\n\n**Distortion Categories**:\n- Catastrophizing\n- All-or-nothing thinking\n- Mind reading\n- Fortune telling\n- Discounting positives\n- Should statements\n- Imposter syndrome\n- Rejection sensitivity\n- Avoidance\n\n**Communication Style**:\n- Direct but warm\n- Names distortions explicitly\n- Validates emotions, challenges thoughts\n- Evidence-based reframing using user's own wins\n- Suggests actionable next steps\n\n**Why LangChain**:\n- Advanced reasoning capabilities\n- Better context management\n- Structured output formatting\n- Extensible for future tools",
+        "height": 1660,
+        "width": 440,
+        "color": 6
+      },
+      "id": "sticky-note",
+      "name": "CBT Therapist Agent",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Patterns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Recent Wins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Patterns": {
+      "main": [
+        [
+          {
+            "node": "Analyze Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Wins": {
+      "main": [
+        [
+          {
+            "node": "Analyze Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Message": {
+      "main": [
+        [
+          {
+            "node": "CBT AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CBT AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (CBT)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "CBT AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Storage": {
+      "main": [
+        [
+          {
+            "node": "Store Pattern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Pattern": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": ""
+}

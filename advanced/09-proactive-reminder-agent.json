@@ -1,0 +1,330 @@
+{
+  "name": "Advanced - Proactive Reminder Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Find tasks with approaching deadlines\nWITH deadline_tasks AS (\n  SELECT \n    t.id,\n    t.title,\n    t.description,\n    t.priority,\n    t.deadline,\n    t.status,\n    t.created_at,\n    EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 as hours_until_deadline,\n    CASE \n      WHEN t.deadline < NOW() THEN 'overdue'\n      WHEN EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 < 2 THEN 'critical'\n      WHEN EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 < 24 THEN 'urgent'\n      WHEN EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 < 72 THEN 'upcoming'\n      ELSE 'future'\n    END as deadline_status,\n    EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 86400 as days_since_created\n  FROM tasks t\n  WHERE t.status IN ('pending', 'in_progress')\n    AND t.deadline IS NOT NULL\n    AND t.deadline <= NOW() + INTERVAL '3 days'\n  ORDER BY t.deadline ASC\n)\nSELECT * FROM deadline_tasks;"
+      },
+      "id": "check-deadlines",
+      "name": "Check Approaching Deadlines",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check launch timeline milestones\nSELECT \n  id,\n  week_number,\n  milestone,\n  description,\n  status,\n  target_date,\n  EXTRACT(EPOCH FROM (target_date - NOW())) / 86400 as days_until_target,\n  CASE \n    WHEN status = 'completed' THEN 'completed'\n    WHEN target_date < NOW() THEN 'overdue'\n    WHEN EXTRACT(EPOCH FROM (target_date - NOW())) / 86400 < 1 THEN 'critical'\n    WHEN EXTRACT(EPOCH FROM (target_date - NOW())) / 86400 < 3 THEN 'urgent'\n    ELSE 'on_track'\n  END as timeline_health\nFROM launch_timeline\nWHERE status != 'completed'\n  AND target_date <= NOW() + INTERVAL '5 days'\nORDER BY target_date ASC;"
+      },
+      "id": "check-timeline",
+      "name": "Check Launch Timeline",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check for stale context that needs refresh\nSELECT \n  id,\n  context_key,\n  context_type,\n  context_value,\n  updated_at,\n  EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600 as hours_since_update,\n  expires_at\nFROM context\nWHERE (\n  expires_at IS NOT NULL AND expires_at <= NOW() + INTERVAL '24 hours'\n) OR (\n  context_type IN ('goal', 'focus') AND updated_at < NOW() - INTERVAL '48 hours'\n)\nORDER BY updated_at ASC;"
+      },
+      "id": "check-stale-context",
+      "name": "Check Stale Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate proactive reminders and alerts\nconst allItems = $input.all();\n\nconst deadlineTasks = allItems.filter(i => i.json.deadline_status);\nconst timelineMilestones = allItems.filter(i => i.json.timeline_health);\nconst staleContext = allItems.filter(i => i.json.hours_since_update !== undefined);\n\nconst reminders = [];\nconst alerts = [];\n\n// Process deadline tasks\ndeadlineTasks.forEach(item => {\n  const task = item.json;\n  \n  if (task.deadline_status === 'overdue') {\n    alerts.push({\n      type: 'task_overdue',\n      severity: 'high',\n      task_id: task.id,\n      title: `Overdue: ${task.title}`,\n      message: `Task \"${task.title}\" is ${Math.abs(Math.round(task.hours_until_deadline))} hours overdue`,\n      action: 'review_and_reschedule',\n      metadata: task\n    });\n  } else if (task.deadline_status === 'critical') {\n    alerts.push({\n      type: 'task_critical',\n      severity: 'high',\n      task_id: task.id,\n      title: `Critical: ${task.title}`,\n      message: `Task \"${task.title}\" is due in ${Math.round(task.hours_until_deadline)} hours`,\n      action: 'complete_immediately',\n      metadata: task\n    });\n  } else if (task.deadline_status === 'urgent') {\n    reminders.push({\n      type: 'task_urgent',\n      severity: 'medium',\n      task_id: task.id,\n      title: `Due soon: ${task.title}`,\n      message: `Task \"${task.title}\" is due in ${Math.round(task.hours_until_deadline)} hours (${task.priority} priority)`,\n      action: 'prioritize',\n      metadata: task\n    });\n  } else if (task.deadline_status === 'upcoming' && task.priority === 'high') {\n    reminders.push({\n      type: 'task_upcoming',\n      severity: 'low',\n      task_id: task.id,\n      title: `Upcoming: ${task.title}`,\n      message: `High-priority task \"${task.title}\" is due in ${Math.round(task.hours_until_deadline)} hours`,\n      action: 'plan_execution',\n      metadata: task\n    });\n  }\n});\n\n// Process timeline milestones\ntimelineMilestones.forEach(item => {\n  const milestone = item.json;\n  \n  if (milestone.timeline_health === 'overdue') {\n    alerts.push({\n      type: 'milestone_overdue',\n      severity: 'high',\n      milestone_id: milestone.id,\n      title: `Week ${milestone.week_number} milestone overdue`,\n      message: `\"${milestone.milestone}\" is ${Math.abs(Math.round(milestone.days_until_target))} days overdue`,\n      action: 'update_timeline',\n      metadata: milestone\n    });\n  } else if (milestone.timeline_health === 'critical') {\n    alerts.push({\n      type: 'milestone_critical',\n      severity: 'medium',\n      milestone_id: milestone.id,\n      title: `Week ${milestone.week_number} milestone due soon`,\n      message: `\"${milestone.milestone}\" is due in ${Math.round(milestone.days_until_target)} days`,\n      action: 'review_progress',\n      metadata: milestone\n    });\n  }\n});\n\n// Process stale context\nif (staleContext.length > 0) {\n  reminders.push({\n    type: 'context_stale',\n    severity: 'low',\n    title: 'Context needs update',\n    message: `${staleContext.length} context item${staleContext.length > 1 ? 's need' : ' needs'} updating`,\n    action: 'refresh_context',\n    metadata: { stale_items: staleContext.map(i => i.json.context_key) }\n  });\n}\n\n// Generate summary\nconst summary = {\n  timestamp: new Date().toISOString(),\n  total_alerts: alerts.length,\n  total_reminders: reminders.length,\n  breakdown: {\n    overdue_tasks: deadlineTasks.filter(t => t.json.deadline_status === 'overdue').length,\n    critical_tasks: deadlineTasks.filter(t => t.json.deadline_status === 'critical').length,\n    urgent_tasks: deadlineTasks.filter(t => t.json.deadline_status === 'urgent').length,\n    overdue_milestones: timelineMilestones.filter(m => m.json.timeline_health === 'overdue').length,\n    stale_context_items: staleContext.length\n  }\n};\n\nreturn {\n  json: {\n    summary: summary,\n    alerts: alerts,\n    reminders: reminders,\n    has_high_priority: alerts.filter(a => a.severity === 'high').length > 0\n  }\n};"
+      },
+      "id": "generate-reminders",
+      "name": "Generate Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "has-alerts",
+                    "leftValue": "={{ $json.alerts.length }}",
+                    "rightValue": 0,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "has_alerts"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "has-reminders",
+                    "leftValue": "={{ $json.reminders.length }}",
+                    "rightValue": 0,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "has_reminders"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-alerts",
+      "name": "Check If Alerts Exist",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        580,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=-- Store high-priority alerts in context for immediate retrieval\nINSERT INTO context (context_key, context_value, context_type, expires_at)\nVALUES (\n  'proactive_alerts',\n  '{{ JSON.stringify($json) }}'::jsonb,\n  'alert',\n  NOW() + INTERVAL '24 hours'\n)\nON CONFLICT (context_key) DO UPDATE\nSET \n  context_value = EXCLUDED.context_value,\n  updated_at = NOW(),\n  expires_at = EXCLUDED.expires_at\nRETURNING id, context_key, updated_at;"
+      },
+      "id": "store-alerts",
+      "name": "Store Alerts in Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "notification-text",
+              "name": "notification",
+              "value": "=\ud83d\udd14 Proactive Reminder\n\n**Alerts ({{ $('Generate Reminders').item.json.alerts.length }}):**\n{{ $('Generate Reminders').item.json.alerts.map(a => `\u2022 ${a.title}: ${a.message}`).join('\\n') }}\n\n**Reminders ({{ $('Generate Reminders').item.json.reminders.length }}):**\n{{ $('Generate Reminders').item.json.reminders.map(r => `\u2022 ${r.title}: ${r.message}`).join('\\n') }}",
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "name": "summary",
+              "value": "={{ $('Generate Reminders').item.json.summary }}",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "format-notification",
+      "name": "Format Notification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        580,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \u23f0 Proactive Reminder Agent\n\n**Runs**: Every 2 hours automatically\n\n**Checks**:\n- Task deadlines (next 3 days)\n- Launch timeline milestones (next 5 days)\n- Stale context items (>48h old)\n\n**Alert Levels**:\n- **High**: Overdue tasks/milestones, <2h deadlines\n- **Medium**: <24h deadlines, critical milestones\n- **Low**: Upcoming tasks, stale context\n\n**Actions**:\n- Stores alerts in context table\n- Generates notification text\n- Can trigger webhooks/emails (if configured)\n\n**Integration**:\n- AI Agent can check 'proactive_alerts' context\n- Alerts expire after 24 hours\n- Summary includes breakdown by category",
+        "height": 960,
+        "width": 620,
+        "color": 5
+      },
+      "id": "sticky-documentation",
+      "name": "Agent Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        140
+      ],
+      "width": 520,
+      "height": 1240
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Approaching Deadlines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Launch Timeline",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Stale Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Approaching Deadlines": {
+      "main": [
+        [
+          {
+            "node": "Generate Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Launch Timeline": {
+      "main": [
+        [
+          {
+            "node": "Generate Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Stale Context": {
+      "main": [
+        [
+          {
+            "node": "Generate Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Reminders": {
+      "main": [
+        [
+          {
+            "node": "Check If Alerts Exist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Alerts Exist": {
+      "main": [
+        [
+          {
+            "node": "Store Alerts in Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "automation",
+    "reminders"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

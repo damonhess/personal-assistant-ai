@@ -1,0 +1,397 @@
+{
+  "name": "Tool - Store Memory (ARIA)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "c1",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "conversation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "conversation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "c2",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "task",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "c3",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "decision",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "decision"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "c4",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "memory",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "memory"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-node",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare conversation/message data with embedding for ARIA\nconst inputData = $('Execute Workflow Trigger').item.json;\nconst apiKey = $credentials.openAiApi.apiKey;\n\n// Extract content for embedding\nconst content = inputData.content || inputData.message?.content || inputData.message || '';\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: content,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    session_id: inputData.session_id,\n    content: content,\n    role: inputData.role || 'user',\n    interface_source: inputData.interface_source || 'cli',\n    metadata: inputData.metadata || {},\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "prepare-conversation",
+      "name": "Prepare Conversation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        100
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare task data with embedding\nconst inputData = $('Execute Workflow Trigger').item.json;\nconst apiKey = $credentials.openAiApi.apiKey;\n\nconst textToEmbed = (inputData.title || '') + ' ' + (inputData.description || '');\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: textToEmbed,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    title: inputData.title,\n    description: inputData.description || '',\n    status: inputData.status || 'pending',\n    priority: inputData.priority || 'medium',\n    deadline: inputData.deadline || null,\n    tags: inputData.tags || [],\n    metadata: inputData.metadata || {},\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "prepare-task",
+      "name": "Prepare Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare decision data with embedding\nconst inputData = $('Execute Workflow Trigger').item.json;\nconst apiKey = $credentials.openAiApi.apiKey;\n\nconst textToEmbed = (inputData.title || '') + ' ' + (inputData.decision || '') + ' ' + (inputData.rationale || '');\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: textToEmbed,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    title: inputData.title,\n    description: inputData.description || '',\n    decision: inputData.decision,\n    rationale: inputData.rationale || '',\n    category: inputData.category || '',\n    tags: inputData.tags || [],\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "prepare-decision",
+      "name": "Prepare Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        500
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare unified memory data with embedding\nconst inputData = $('Execute Workflow Trigger').item.json;\nconst apiKey = $credentials.openAiApi.apiKey;\n\nconst content = inputData.content || '';\n\nconst response = await $http.makeRequest({\n  method: 'POST',\n  url: 'https://api.openai.com/v1/embeddings',\n  headers: {\n    'Authorization': `Bearer ${apiKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    input: content,\n    model: 'text-embedding-3-small'\n  }\n});\n\nconst embeddingArray = response.data[0].embedding;\n\nreturn {\n  json: {\n    memory_type: inputData.memory_type || 'fact',\n    content: content,\n    confidence: inputData.confidence || 1.0,\n    conversation_id: inputData.conversation_id || null,\n    embedding: '[' + embeddingArray.join(',') + ']'\n  }\n};"
+      },
+      "id": "prepare-memory",
+      "name": "Prepare Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        700
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=-- Find or create conversation, then insert message\nWITH conv AS (\n  INSERT INTO aria_conversations (session_id, title, interface_source, created_at, updated_at)\n  VALUES (\n    '{{ $json.session_id }}',\n    LEFT('{{ $json.content.replace(/'/g, \"''\") }}', 50),\n    '{{ $json.interface_source }}',\n    NOW(),\n    NOW()\n  )\n  ON CONFLICT (session_id) DO UPDATE SET updated_at = NOW()\n  RETURNING id\n)\nINSERT INTO aria_messages (conversation_id, role, content, interface_source, embedding, metadata, created_at)\nSELECT\n  conv.id,\n  '{{ $json.role }}',\n  '{{ $json.content.replace(/'/g, \"''\") }}',\n  '{{ $json.interface_source }}',\n  '{{ $json.embedding }}',\n  '{{ JSON.stringify($json.metadata) }}'::jsonb,\n  NOW()\nFROM conv\nRETURNING id, conversation_id, created_at;"
+      },
+      "id": "store-conversation-aria",
+      "name": "Store to ARIA",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1040,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO tasks (title, description, status, priority, deadline, embedding, tags, metadata)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.description }}',\n  '{{ $json.status }}',\n  '{{ $json.priority }}',\n  {{ $json.deadline ? \"'\" + $json.deadline + \"'::timestamptz\" : 'NULL' }},\n  '{{ $json.embedding }}',\n  {{ $json.tags && $json.tags.length > 0 ? \"ARRAY['\" + $json.tags.join(\"','\") + \"']\" : \"'{}'\" }},\n  '{{ JSON.stringify($json.metadata) }}'::jsonb\n)\nRETURNING id, title, status;"
+      },
+      "id": "store-task",
+      "name": "Store Task",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1040,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO decisions (title, description, decision, rationale, embedding, category, tags)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.description }}',\n  '{{ $json.decision }}',\n  '{{ $json.rationale }}',\n  '{{ $json.embedding }}',\n  '{{ $json.category }}',\n  {{ $json.tags && $json.tags.length > 0 ? \"ARRAY['\" + $json.tags.join(\"','\") + \"']\" : \"'{}'\" }}\n)\nRETURNING id, title, made_at;"
+      },
+      "id": "store-decision",
+      "name": "Store Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1040,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO aria_unified_memory (memory_type, content, source_conversation_id, confidence, embedding, created_at)\nVALUES (\n  '{{ $json.memory_type }}',\n  '{{ $json.content.replace(/'/g, \"''\") }}',\n  {{ $json.conversation_id ? \"'\" + $json.conversation_id + \"'\" : 'NULL' }},\n  {{ $json.confidence }},\n  '{{ $json.embedding }}',\n  NOW()\n)\nRETURNING id, memory_type, created_at;"
+      },
+      "id": "store-memory",
+      "name": "Store Unified Memory",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1040,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Store Memory (ARIA Edition)\n\n**Purpose**: Save important information to ARIA unified schema\n\n**Input Types**:\n- conversation: Messages (requires: content, session_id, role)\n- task: Action items (requires: title, description)\n- decision: Important choices (requires: title, decision, rationale)\n- memory: Unified memory facts (requires: content, memory_type)\n\n**New Fields**:\n- interface_source: 'cli', 'web', 'telegram'\n- memory_type: 'fact', 'preference', 'decision', 'context'\n\n**Output**: Returns ID and timestamp of stored item",
+        "height": 680,
+        "width": 840,
+        "color": 4
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        40
+      ],
+      "width": 920,
+      "height": 840
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Route by Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Conversation": {
+      "main": [
+        [
+          {
+            "node": "Store to ARIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Task": {
+      "main": [
+        [
+          {
+            "node": "Store Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Decision": {
+      "main": [
+        [
+          {
+            "node": "Store Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Memory": {
+      "main": [
+        [
+          {
+            "node": "Store Unified Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["aria", "tools"],
+  "triggerCount": 0,
+  "versionId": ""
+}

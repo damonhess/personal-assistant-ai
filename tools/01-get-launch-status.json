@@ -1,0 +1,120 @@
+{
+  "name": "Tool - Get Launch Status",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT \n  week_number,\n  milestone,\n  description,\n  status,\n  target_date,\n  completed_date,\n  related_tasks,\n  created_at,\n  updated_at\nFROM launch_timeline\nWHERE \n  CASE \n    WHEN {{ $json.week }} IS NULL THEN true\n    ELSE week_number = {{ $json.week }}\n  END\nORDER BY week_number;"
+      },
+      "id": "query-launch-timeline",
+      "name": "Query Launch Timeline",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        400,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "weeks",
+              "name": "weeks",
+              "value": "={{ $json }}",
+              "type": "array"
+            },
+            {
+              "id": "total-count",
+              "name": "total_count",
+              "value": "={{ $items().length }}",
+              "type": "number"
+            },
+            {
+              "id": "status-summary",
+              "name": "status_summary",
+              "value": "={{ { completed: $items().filter(i => i.json.status === 'completed').length, in_progress: $items().filter(i => i.json.status === 'in_progress').length, not_started: $items().filter(i => i.json.status === 'not_started').length, at_risk: $items().filter(i => i.json.status === 'at_risk').length } }}",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        400,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\ude80 Tool: Get Launch Status\n\n**Purpose**: Check 4-week launch timeline progress\n\n**Input**: \n- week (optional): Specific week number (1-4) or null for all\n\n**Output**: Launch timeline with milestones, status, dates\n\n**Tool Description for AI**:\nCheck the 4-week launch timeline progress. Returns milestones, status, target dates, and completion info. Use when user asks about launch progress, timeline, or milestones.",
+        "height": 680,
+        "width": 400,
+        "color": 2
+      },
+      "id": "sticky-note",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        320,
+        120
+      ],
+      "width": 300,
+      "height": 960
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Query Launch Timeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Launch Timeline": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "versionId": ""
+}

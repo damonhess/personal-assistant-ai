@@ -1,0 +1,259 @@
+{
+  "name": "30 - N8n Troubleshooter",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "op",
+              "name": "operation",
+              "value": "={{ $json.operation }}",
+              "type": "string"
+            },
+            {
+              "id": "wfid",
+              "name": "workflow_id",
+              "value": "={{ $json.workflow_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "lim",
+              "name": "limit",
+              "value": "={{ $json.limit || 10 }}",
+              "type": "number"
+            },
+            {
+              "id": "hrs",
+              "name": "hours",
+              "value": "={{ $json.hours || 24 }}",
+              "type": "number"
+            },
+            {
+              "id": "reason",
+              "name": "reason",
+              "value": "={{ $json.reason || 'ai-agent-request' }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "normalize",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "health_check", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "health"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "validate_workflow", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "validate"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "get_failures", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "failures"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "find_bottlenecks", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "bottlenecks"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "backup_workflow", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "backup"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "detect_repeated_failures", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "repeated"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.operation }}", "rightValue": "list_workflows", "operator": { "type": "string", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "list"
+            }
+          ]
+        }
+      },
+      "id": "router",
+      "name": "Route by Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://n8n-troubleshooter:8000/health/comprehensive"
+      },
+      "id": "health",
+      "name": "Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 60]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://n8n-troubleshooter:8000/workflow/{{ $('Normalize Input').item.json.workflow_id }}/validate"
+      },
+      "id": "validate",
+      "name": "Validate Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 160]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://n8n-troubleshooter:8000/executions/failures?limit={{ $('Normalize Input').item.json.limit }}&hours={{ $('Normalize Input').item.json.hours }}"
+      },
+      "id": "failures",
+      "name": "Get Failures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 260]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://n8n-troubleshooter:8000/workflow/{{ $('Normalize Input').item.json.workflow_id }}/bottlenecks"
+      },
+      "id": "bottlenecks",
+      "name": "Find Bottlenecks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 360]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://n8n-troubleshooter:8000/workflow/{{ $('Normalize Input').item.json.workflow_id }}/backup",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reason: $('Normalize Input').item.json.reason }) }}"
+      },
+      "id": "backup",
+      "name": "Backup Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 460]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://n8n-troubleshooter:8000/health/repeated-failures"
+      },
+      "id": "repeated",
+      "name": "Detect Repeated Failures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 560]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://n8n-troubleshooter:8000/workflows"
+      },
+      "id": "list",
+      "name": "List Workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 660]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "value": "={{ !$json.error }}",
+              "type": "boolean"
+            },
+            {
+              "id": "operation",
+              "name": "operation",
+              "value": "={{ $('Normalize Input').item.json.operation }}",
+              "type": "string"
+            },
+            {
+              "id": "result",
+              "name": "result",
+              "value": "={{ $json }}",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "format",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Normalize Input", "type": "main", "index": 0 }]] },
+    "Normalize Input": { "main": [[{ "node": "Route by Operation", "type": "main", "index": 0 }]] },
+    "Route by Operation": {
+      "main": [
+        [{ "node": "Health Check", "type": "main", "index": 0 }],
+        [{ "node": "Validate Workflow", "type": "main", "index": 0 }],
+        [{ "node": "Get Failures", "type": "main", "index": 0 }],
+        [{ "node": "Find Bottlenecks", "type": "main", "index": 0 }],
+        [{ "node": "Backup Workflow", "type": "main", "index": 0 }],
+        [{ "node": "Detect Repeated Failures", "type": "main", "index": 0 }],
+        [{ "node": "List Workflows", "type": "main", "index": 0 }]
+      ]
+    },
+    "Health Check": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "Validate Workflow": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "Get Failures": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "Find Bottlenecks": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "Backup Workflow": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "Detect Repeated Failures": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] },
+    "List Workflows": { "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

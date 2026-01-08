@@ -1,0 +1,175 @@
+{
+  "name": "Advanced - Task Analytics Dashboard",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        420,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Comprehensive task analytics\nWITH task_metrics AS (\n  SELECT \n    COUNT(*) as total_tasks,\n    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,\n    COUNT(CASE WHEN status IN ('pending', 'in_progress') THEN 1 END) as active_tasks,\n    COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_tasks,\n    ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600), 2) as avg_completion_hours,\n    ROUND(COUNT(CASE WHEN status = 'completed' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate,\n    COUNT(CASE WHEN deadline < NOW() AND status != 'completed' THEN 1 END) as overdue_count\n  FROM tasks\n  WHERE created_at >= NOW() - INTERVAL '30 days'\n),\npriority_breakdown AS (\n  SELECT \n    priority,\n    COUNT(*) as count,\n    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,\n    ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600), 2) as avg_hours\n  FROM tasks\n  WHERE created_at >= NOW() - INTERVAL '30 days'\n  GROUP BY priority\n),\nweekly_trend AS (\n  SELECT \n    DATE_TRUNC('week', created_at) as week,\n    COUNT(*) as created,\n    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,\n    ROUND(COUNT(CASE WHEN status = 'completed' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate\n  FROM tasks\n  WHERE created_at >= NOW() - INTERVAL '12 weeks'\n  GROUP BY DATE_TRUNC('week', created_at)\n  ORDER BY week DESC\n)\nSELECT \n  'overall' as metric_type,\n  to_jsonb(task_metrics.*) as data\nFROM task_metrics\nUNION ALL\nSELECT \n  'priority_breakdown' as metric_type,\n  jsonb_agg(to_jsonb(priority_breakdown.*)) as data\nFROM priority_breakdown\nUNION ALL\nSELECT \n  'weekly_trend' as metric_type,\n  jsonb_agg(to_jsonb(weekly_trend.*)) as data\nFROM weekly_trend;"
+      },
+      "id": "calculate-metrics",
+      "name": "Calculate Task Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Velocity and throughput analysis\nWITH daily_completion AS (\n  SELECT \n    DATE(completed_at) as completion_date,\n    COUNT(*) as tasks_completed,\n    AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600) as avg_cycle_time\n  FROM tasks\n  WHERE status = 'completed'\n    AND completed_at >= NOW() - INTERVAL '30 days'\n  GROUP BY DATE(completed_at)\n),\nvelocity_stats AS (\n  SELECT \n    AVG(tasks_completed) as avg_daily_velocity,\n    STDDEV(tasks_completed) as velocity_stddev,\n    MAX(tasks_completed) as max_daily_velocity,\n    MIN(tasks_completed) as min_daily_velocity,\n    AVG(avg_cycle_time) as avg_cycle_time_hours\n  FROM daily_completion\n)\nSELECT \n  ROUND(avg_daily_velocity, 2) as avg_tasks_per_day,\n  ROUND(velocity_stddev, 2) as stddev,\n  max_daily_velocity,\n  min_daily_velocity,\n  ROUND(avg_cycle_time_hours, 2) as avg_cycle_time_hours,\n  ROUND(avg_daily_velocity * 7, 0) as projected_weekly_velocity\nFROM velocity_stats;"
+      },
+      "id": "analyze-velocity",
+      "name": "Analyze Velocity",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Tag analysis for categorization insights\nSELECT \n  UNNEST(tags) as tag,\n  COUNT(*) as usage_count,\n  COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count,\n  ROUND(COUNT(CASE WHEN status = 'completed' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate,\n  ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600), 2) as avg_completion_hours\nFROM tasks\nWHERE tags IS NOT NULL \n  AND array_length(tags, 1) > 0\n  AND created_at >= NOW() - INTERVAL '90 days'\nGROUP BY UNNEST(tags)\nHAVING COUNT(*) >= 3\nORDER BY usage_count DESC\nLIMIT 20;"
+      },
+      "id": "analyze-tags",
+      "name": "Analyze Tags",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        940
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate analytics and generate insights\nconst allItems = $input.all();\n\n// Extract metrics\nconst metrics = allItems.find(i => i.json.metric_type === 'overall')?.json.data || {};\nconst priorityBreakdown = allItems.find(i => i.json.metric_type === 'priority_breakdown')?.json.data || [];\nconst weeklyTrend = allItems.find(i => i.json.metric_type === 'weekly_trend')?.json.data || [];\nconst velocity = allItems.find(i => i.json.avg_tasks_per_day !== undefined)?.json || {};\nconst tags = allItems.filter(i => i.json.tag !== undefined).map(i => i.json);\n\n// Generate insights\nconst insights = [];\n\n// Completion rate insights\nif (metrics.completion_rate < 50) {\n  insights.push({\n    type: 'warning',\n    category: 'completion',\n    message: `Low completion rate: ${metrics.completion_rate}%`,\n    recommendation: 'Consider breaking down tasks into smaller, more manageable chunks'\n  });\n} else if (metrics.completion_rate > 80) {\n  insights.push({\n    type: 'success',\n    category: 'completion',\n    message: `Excellent completion rate: ${metrics.completion_rate}%`,\n    recommendation: 'Keep up the great work!'\n  });\n}\n\n// Velocity insights\nif (velocity.avg_tasks_per_day > 0) {\n  insights.push({\n    type: 'info',\n    category: 'velocity',\n    message: `Average ${velocity.avg_tasks_per_day} tasks per day`,\n    recommendation: `At this pace, you can complete ~${velocity.projected_weekly_velocity} tasks per week`\n  });\n}\n\n// Overdue insights\nif (metrics.overdue_count > 0) {\n  insights.push({\n    type: 'alert',\n    category: 'deadlines',\n    message: `${metrics.overdue_count} overdue tasks need attention`,\n    recommendation: 'Review and reschedule overdue tasks'\n  });\n}\n\n// Priority insights\nconst urgentTasks = priorityBreakdown.find(p => p.priority === 'urgent');\nif (urgentTasks && urgentTasks.count - urgentTasks.completed > 5) {\n  insights.push({\n    type: 'warning',\n    category: 'priority',\n    message: `${urgentTasks.count - urgentTasks.completed} urgent tasks pending`,\n    recommendation: 'Focus on urgent priorities first'\n  });\n}\n\n// Tag insights - find most productive tags\nconst topTags = tags\n  .sort((a, b) => b.completion_rate - a.completion_rate)\n  .slice(0, 3)\n  .map(t => ({ tag: t.tag, completion_rate: t.completion_rate }));\n\nif (topTags.length > 0) {\n  insights.push({\n    type: 'optimization',\n    category: 'tags',\n    message: `Most productive tags: ${topTags.map(t => t.tag).join(', ')}`,\n    recommendation: 'Consider using these tags for important tasks'\n  });\n}\n\nreturn {\n  json: {\n    timestamp: new Date().toISOString(),\n    summary: {\n      overall_metrics: metrics,\n      velocity: velocity,\n      priority_breakdown: priorityBreakdown,\n      top_tags: tags.slice(0, 10)\n    },\n    trends: {\n      weekly: weeklyTrend\n    },\n    insights: insights,\n    health_score: Math.round((\n      (metrics.completion_rate || 0) * 0.4 +\n      (100 - (metrics.overdue_count / metrics.active_tasks * 100 || 0)) * 0.3 +\n      (velocity.avg_tasks_per_day > 0 ? 70 : 50) * 0.3\n    ))\n  }\n};"
+      },
+      "id": "generate-dashboard",
+      "name": "Generate Analytics Dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        1180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\udcca Task Analytics Dashboard\n\n**Purpose**: Comprehensive task performance analytics\n\n**Metrics Tracked**:\n- Overall completion rate\n- Average completion time\n- Overdue task count\n- Priority breakdown\n- Weekly trends (12 weeks)\n- Velocity (tasks/day)\n- Tag usage and effectiveness\n\n**Insights Generated**:\n- Completion rate analysis\n- Velocity projections\n- Priority alerts\n- Tag optimization\n- Health score (0-100)\n\n**Use Cases**:\n- Weekly review meetings\n- Productivity optimization\n- Resource planning\n- Process improvements\n\n**Output**: Structured JSON dashboard",
+        "height": 1200,
+        "width": 400,
+        "color": 3
+      },
+      "id": "sticky-documentation",
+      "name": "Tool Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        340,
+        140
+      ],
+      "width": 360,
+      "height": 1500
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Calculate Task Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analyze Velocity",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analyze Tags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Task Metrics": {
+      "main": [
+        [
+          {
+            "node": "Generate Analytics Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Velocity": {
+      "main": [
+        [
+          {
+            "node": "Generate Analytics Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Tags": {
+      "main": [
+        [
+          {
+            "node": "Generate Analytics Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "analytics",
+    "tool"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

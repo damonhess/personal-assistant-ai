@@ -1,0 +1,265 @@
+{
+  "name": "Advanced - Backup & Export System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "daily-schedule",
+      "name": "Daily Backup Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export all conversations\nSELECT \n  id,\n  session_id,\n  message,\n  role,\n  timestamp,\n  metadata\nFROM conversations\nWHERE timestamp >= NOW() - INTERVAL '7 days'\nORDER BY timestamp DESC;"
+      },
+      "id": "export-conversations",
+      "name": "Export Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export all tasks\nSELECT \n  id,\n  title,\n  description,\n  status,\n  priority,\n  deadline,\n  created_at,\n  updated_at,\n  completed_at,\n  tags,\n  metadata\nFROM tasks\nORDER BY created_at DESC;"
+      },
+      "id": "export-tasks",
+      "name": "Export Tasks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export all decisions\nSELECT \n  id,\n  title,\n  description,\n  decision,\n  rationale,\n  category,\n  status,\n  made_at,\n  tags,\n  context\nFROM decisions\nORDER BY made_at DESC;"
+      },
+      "id": "export-decisions",
+      "name": "Export Decisions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        580,
+        460
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Export patterns and context\nSELECT \n  'pattern' as type,\n  id,\n  pattern_type,\n  pattern_name,\n  description,\n  confidence,\n  occurrences,\n  is_active,\n  metadata\nFROM patterns\nUNION ALL\nSELECT \n  'context' as type,\n  id,\n  context_key,\n  context_type,\n  context_value::text,\n  NULL as confidence,\n  NULL as occurrences,\n  NULL as is_active,\n  metadata\nFROM context;"
+      },
+      "id": "export-metadata",
+      "name": "Export Patterns & Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        320,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare backup package\nconst allItems = $input.all();\nconst timestamp = new Date().toISOString().split('T')[0];\n\n// Organize data by source\nconst conversations = allItems.filter(i => i.json.session_id && i.json.role).map(i => i.json);\nconst tasks = allItems.filter(i => i.json.title && i.json.status).map(i => i.json);\nconst decisions = allItems.filter(i => i.json.decision).map(i => i.json);\nconst metadata = allItems.filter(i => i.json.type).map(i => i.json);\n\n// Create backup structure\nconst backup = {\n  metadata: {\n    backup_date: new Date().toISOString(),\n    version: '1.0',\n    source: 'personal-assistant-ai',\n    total_records: conversations.length + tasks.length + decisions.length + metadata.length\n  },\n  data: {\n    conversations: {\n      count: conversations.length,\n      records: conversations\n    },\n    tasks: {\n      count: tasks.length,\n      records: tasks\n    },\n    decisions: {\n      count: decisions.length,\n      records: decisions\n    },\n    patterns_and_context: {\n      count: metadata.length,\n      records: metadata\n    }\n  },\n  summary: {\n    total_conversations: conversations.length,\n    total_tasks: tasks.length,\n    total_decisions: decisions.length,\n    total_patterns: metadata.filter(m => m.type === 'pattern').length,\n    total_context: metadata.filter(m => m.type === 'context').length\n  }\n};\n\nreturn {\n  json: {\n    backup: backup,\n    filename: `personal-assistant-backup-${timestamp}.json`,\n    size_kb: Math.round(JSON.stringify(backup).length / 1024)\n  }\n};"
+      },
+      "id": "package-backup",
+      "name": "Package Backup Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "backup-json",
+              "name": "backup_data",
+              "value": "={{ JSON.stringify($json.backup, null, 2) }}",
+              "type": "string"
+            },
+            {
+              "id": "filename",
+              "name": "filename",
+              "value": "={{ $json.filename }}",
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "name": "summary",
+              "value": "={{ $json.backup.summary }}",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "id": "format-output",
+      "name": "Format for Storage",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        320,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## \ud83d\udcbe Backup & Export System\n\n**Runs**: Daily at midnight\n\n**Purpose**: Create comprehensive backups\n\n**Data Exported**:\n1. **Conversations** (last 7 days)\n   - All messages\n   - Session data\n   - Metadata\n\n2. **Tasks** (all)\n   - Complete task history\n   - Status, priority, deadlines\n   - Tags and metadata\n\n3. **Decisions** (all)\n   - Decision logs\n   - Rationale and context\n   - Category breakdown\n\n4. **Patterns & Context**\n   - Active patterns\n   - Current context\n   - Confidence scores\n\n**Output Format**: JSON\n- Structured and versioned\n- Includes metadata\n- Summary statistics\n- Size-optimized\n\n**Next Steps** (manual):\n- Save to file system\n- Upload to cloud storage\n- Email notification\n- Retention management",
+        "height": 960,
+        "width": 620,
+        "color": 6
+      },
+      "id": "sticky-documentation",
+      "name": "System Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        140
+      ],
+      "width": 520,
+      "height": 1240
+    }
+  ],
+  "connections": {
+    "Daily Backup Trigger": {
+      "main": [
+        [
+          {
+            "node": "Export Conversations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Export Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Export Decisions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Export Patterns & Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Conversations": {
+      "main": [
+        [
+          {
+            "node": "Package Backup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Tasks": {
+      "main": [
+        [
+          {
+            "node": "Package Backup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Decisions": {
+      "main": [
+        [
+          {
+            "node": "Package Backup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Patterns & Context": {
+      "main": [
+        [
+          {
+            "node": "Package Backup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Package Backup Data": {
+      "main": [
+        [
+          {
+            "node": "Format for Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "automation",
+    "backup"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}

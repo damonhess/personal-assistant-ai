@@ -1,0 +1,304 @@
+{
+  "name": "Advanced - Pattern Detection Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Analyze task completion patterns\nWITH task_stats AS (\n  SELECT \n    DATE_TRUNC('day', created_at) as day,\n    DATE_TRUNC('hour', created_at) as hour,\n    COUNT(*) as tasks_created,\n    COUNT(CASE WHEN status = 'completed' THEN 1 END) as tasks_completed,\n    AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600) as avg_completion_hours,\n    COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as tasks_cancelled,\n    COUNT(CASE WHEN deadline < NOW() AND status != 'completed' THEN 1 END) as tasks_overdue\n  FROM tasks\n  WHERE created_at >= NOW() - INTERVAL '7 days'\n  GROUP BY DATE_TRUNC('day', created_at), DATE_TRUNC('hour', created_at)\n),\nhourly_patterns AS (\n  SELECT \n    EXTRACT(HOUR FROM hour) as hour_of_day,\n    AVG(tasks_created) as avg_tasks_created,\n    AVG(tasks_completed) as avg_tasks_completed\n  FROM task_stats\n  GROUP BY EXTRACT(HOUR FROM hour)\n  ORDER BY avg_tasks_completed DESC\n),\nweekly_trends AS (\n  SELECT \n    day,\n    tasks_created,\n    tasks_completed,\n    tasks_cancelled,\n    tasks_overdue,\n    ROUND((tasks_completed::numeric / NULLIF(tasks_created, 0)) * 100, 2) as completion_rate\n  FROM task_stats\n  ORDER BY day DESC\n  LIMIT 7\n)\nSELECT \n  'hourly_patterns' as analysis_type,\n  json_agg(hourly_patterns.*) as data\nFROM hourly_patterns\nUNION ALL\nSELECT \n  'weekly_trends' as analysis_type,\n  json_agg(weekly_trends.*) as data\nFROM weekly_trends;",
+        "options": {}
+      },
+      "id": "analyze-task-patterns",
+      "name": "Analyze Task Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        220,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Detect procrastination patterns\nSELECT \n  t.id,\n  t.title,\n  t.priority,\n  t.created_at,\n  t.deadline,\n  t.status,\n  EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 as hours_since_created,\n  EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 as hours_until_deadline,\n  CASE \n    WHEN t.deadline < NOW() THEN 'overdue'\n    WHEN EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 < 24 THEN 'urgent'\n    WHEN EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 > 48 AND t.status = 'pending' THEN 'procrastinating'\n    ELSE 'on_track'\n  END as task_health\nFROM tasks t\nWHERE t.status IN ('pending', 'in_progress')\n  AND t.deadline IS NOT NULL\nORDER BY \n  CASE \n    WHEN t.deadline < NOW() THEN 1\n    WHEN EXTRACT(EPOCH FROM (t.deadline - NOW())) / 3600 < 24 THEN 2\n    WHEN EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 > 48 THEN 3\n    ELSE 4\n  END,\n  t.deadline NULLS LAST;",
+        "options": {}
+      },
+      "id": "detect-procrastination",
+      "name": "Detect Procrastination",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Analyze decision patterns\nSELECT \n  category,\n  COUNT(*) as decision_count,\n  COUNT(CASE WHEN status = 'active' THEN 1 END) as active_decisions,\n  COUNT(CASE WHEN status = 'revisited' THEN 1 END) as revisited_decisions,\n  COUNT(CASE WHEN status = 'reversed' THEN 1 END) as reversed_decisions,\n  ROUND(AVG(EXTRACT(EPOCH FROM (NOW() - made_at)) / 86400), 2) as avg_age_days\nFROM decisions\nWHERE made_at >= NOW() - INTERVAL '30 days'\nGROUP BY category\nORDER BY decision_count DESC;",
+        "options": {}
+      },
+      "id": "analyze-decisions",
+      "name": "Analyze Decision Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        620,
+        440
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate data for LangChain analysis\nconst allItems = $input.all();\n\nconst taskPatterns = allItems.filter(i => i.json.analysis_type);\nconst procrastination = allItems.filter(i => i.json.task_health);\nconst decisions = allItems.filter(i => i.json.category);\n\n// Build comprehensive data document\nconst hourlyData = taskPatterns.find(t => t.json.analysis_type === 'hourly_patterns')?.json.data || [];\nconst weeklyData = taskPatterns.find(t => t.json.analysis_type === 'weekly_trends')?.json.data || [];\n\nconst analysisDocument = `# Behavioral Pattern Analysis Data\n\n## Task Completion Patterns (7 days)\n\n### Hourly Productivity:\n${hourlyData.map(h => `Hour ${h.hour_of_day}: ${h.avg_tasks_completed.toFixed(2)} avg completed, ${h.avg_tasks_created.toFixed(2)} avg created`).join('\\n')}\n\n### Weekly Trends:\n${weeklyData.map(w => `${w.day.split('T')[0]}: ${w.tasks_created} created, ${w.tasks_completed} completed, ${w.completion_rate}% completion rate, ${w.tasks_overdue} overdue`).join('\\n')}\n\n## Current Task Health\n\n${procrastination.map(p => `- ${p.json.title} (${p.json.priority}): ${p.json.task_health} - ${p.json.hours_since_created.toFixed(1)}h old${p.json.hours_until_deadline ? `, ${p.json.hours_until_deadline.toFixed(1)}h until deadline` : ''}`).join('\\n')}\n\n## Decision Patterns (30 days)\n\n${decisions.map(d => `${d.json.category}: ${d.json.decision_count} total, ${d.json.reversed_decisions} reversed (${((d.json.reversed_decisions / d.json.decision_count) * 100).toFixed(1)}% reversal rate)`).join('\\n')}\n`;\n\nreturn {\n  json: {\n    analysisDocument: analysisDocument,\n    taskPatterns: hourlyData,\n    weeklyTrends: weeklyData,\n    procrastination: procrastination.map(p => p.json),\n    decisions: decisions.map(d => d.json),\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "prepare-analysis-data",
+      "name": "Prepare Analysis Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.analysisDocument }}",
+        "options": {
+          "systemMessage": "You are a behavioral pattern analyst specializing in productivity and ADHD. Analyze the data provided and generate actionable insights.\n\n## Analysis Framework\n\n1. **Productivity Patterns**:\n   - Identify peak productivity hours\n   - Detect productivity trends (improving/declining)\n   - Note completion rate patterns\n\n2. **Procrastination Indicators**:\n   - Tasks sitting >48h without progress\n   - Overdue task patterns\n   - Priority vs action discrepancies\n\n3. **Decision Quality**:\n   - High reversal rates (>20%) indicate indecision or poor initial analysis\n   - Category-specific patterns\n   - Decision fatigue indicators\n\n4. **ADHD-Specific Patterns**:\n   - Task initiation delays\n   - Hyperfocus indicators (rapid completion)\n   - Context switching patterns\n\n## Output Format\n\nProvide structured insights:\n\n**Key Patterns Detected:**\n- List 3-5 most significant patterns\n\n**Actionable Recommendations:**\n- Specific, implementable suggestions\n\n**Alerts:**\n- Any concerning trends requiring immediate attention\n\n**Confidence Level:** [High/Medium/Low] based on data completeness\n\nBe specific, evidence-based, and actionable.",
+          "maxIterations": 3
+        }
+      },
+      "id": "pattern-analysis-agent",
+      "name": "Pattern Analysis Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        420,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 800
+        }
+      },
+      "id": "openai-model-pattern",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        620,
+        880
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credential",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse LangChain agent output and structure insights\nconst agentOutput = $input.item.json.output;\nconst rawData = $('Prepare Analysis Data').item.json;\n\n// Extract key metrics for storage\nconst overdueTasks = rawData.procrastination.filter(t => t.task_health === 'overdue').length;\nconst urgentTasks = rawData.procrastination.filter(t => t.task_health === 'urgent').length;\nconst procrastinatingTasks = rawData.procrastination.filter(t => t.task_health === 'procrastinating').length;\n\n// Calculate overall health score (0-1)\nconst totalTasks = rawData.procrastination.length;\nconst healthScore = totalTasks > 0 \n  ? (totalTasks - overdueTasks - procrastinatingTasks * 0.5 - urgentTasks * 0.3) / totalTasks\n  : 0.5;\n\nreturn {\n  json: {\n    insights: agentOutput,\n    metrics: {\n      total_active_tasks: totalTasks,\n      overdue: overdueTasks,\n      urgent: urgentTasks,\n      procrastinating: procrastinatingTasks,\n      on_track: totalTasks - overdueTasks - urgentTasks - procrastinatingTasks,\n      health_score: Math.max(0, Math.min(1, healthScore))\n    },\n    top_productive_hours: rawData.taskPatterns\n      .sort((a, b) => b.avg_tasks_completed - a.avg_tasks_completed)\n      .slice(0, 3)\n      .map(h => h.hour_of_day),\n    timestamp: rawData.timestamp\n  }\n};"
+      },
+      "id": "structure-insights",
+      "name": "Structure Insights",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=-- Store pattern insights with LangChain analysis\nINSERT INTO patterns (pattern_type, pattern_name, description, confidence, evidence, occurrences, metadata)\nVALUES (\n  'task_health',\n  'LangChain Pattern Analysis',\n  '{{ $json.insights }}',\n  {{ $json.metrics.health_score }},\n  '{{ JSON.stringify({ metrics: $json.metrics, top_hours: $json.top_productive_hours }) }}'::jsonb,\n  {{ $json.metrics.total_active_tasks }},\n  '{{ JSON.stringify({ analysis_method: 'langchain_agent', model: 'gpt-4o-mini' }) }}'::jsonb\n)\nRETURNING id, pattern_type, confidence, occurrences;",
+        "options": {}
+      },
+      "id": "store-patterns",
+      "name": "Store Pattern Analysis",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        420,
+        1320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase-credential",
+          "name": "Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 🔍 Pattern Detection Agent (LangChain)\n\n**Architecture**: LangChain AI Agent with behavioral analysis\n**Model**: GPT-4o-mini (temp: 0.4)\n\n**Runs**: Every 6 hours automatically\n\n**Analyzes**:\n- Task completion patterns (hourly/daily)\n- Procrastination indicators\n- Decision-making patterns\n- Productivity trends\n\n**LangChain Advantages**:\n✓ Sophisticated pattern recognition\n✓ Context-aware analysis\n✓ ADHD-specific insights\n✓ Evidence-based recommendations\n✓ Adaptive confidence scoring\n\n**Detection Capabilities**:\n- Peak productivity hours\n- Overdue task patterns\n- Procrastination (>48h pending)\n- Decision reversal patterns\n- Task initiation delays\n- Hyperfocus indicators\n- Context switching patterns\n\n**Process**:\n1. SQL queries gather raw data\n2. Aggregate and format for analysis\n3. LangChain AI Agent analyzes patterns\n4. Structure insights with metrics\n5. Store in patterns table with confidence score\n\n**Output Includes**:\n- Key patterns detected (3-5 significant)\n- Actionable recommendations\n- Alerts for concerning trends\n- Confidence level assessment\n- Health score (0-1)\n\n**Why LangChain**:\n- Better pattern recognition than rule-based\n- Understands nuance and context\n- ADHD-aware analysis\n- Adaptive to changing behaviors\n- More sophisticated than static queries",
+        "height": 1280,
+        "width": 420,
+        "color": 2
+      },
+      "id": "sticky-documentation",
+      "name": "Agent Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        820,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Analyze Task Patterns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detect Procrastination",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analyze Decision Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Task Patterns": {
+      "main": [
+        [
+          {
+            "node": "Prepare Analysis Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Procrastination": {
+      "main": [
+        [
+          {
+            "node": "Prepare Analysis Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Decision Patterns": {
+      "main": [
+        [
+          {
+            "node": "Prepare Analysis Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Analysis Data": {
+      "main": [
+        [
+          {
+            "node": "Pattern Analysis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pattern Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Structure Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Pattern Analysis Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure Insights": {
+      "main": [
+        [
+          {
+            "node": "Store Pattern Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "advanced",
+    "automation",
+    "analytics",
+    "langchain"
+  ],
+  "triggerCount": 0,
+  "versionId": ""
+}
